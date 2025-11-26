@@ -44,16 +44,14 @@ jobs:
         run: dotnet restore src/*.sln
 
       - name: .NET Build
-        if: steps.check-sonar.outputs.configured == 'true'
         run: dotnet build src/*.sln --configuration Release --no-restore
 
       - name: SonarScanner for .NET 10 with pull request decoration support
-        if: steps.check-sonar.outputs.configured == 'true'
         uses: highbyte/sonarscan-dotnet@v2.5.0
         with:
           # The key of the SonarQube project
-          sonarProjectKey: ${{ secrets.SONAR_PROJECT_KEY }}
+          sonarProjectKey: ${{ vars.SONAR_PROJECT_KEY }}
           # The name of the SonarQube project
           sonarProjectName: SimpleWeb
           # The name of the SonarQube organization in SonarCloud. For hosted SonarQube, skip this setting.
-          sonarOrganization: ${{ secrets.SONAR_ORGANIZATION }}
+          sonarOrganization: ${{ vars.SONAR_ORGANIZATION }}
