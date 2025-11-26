@@ -22,6 +22,13 @@ namespace SimpleWeb.UITest
             {
                 PageLoadStrategy = PageLoadStrategy.Normal
             };
+            
+            // Add headless mode for CI environments (GitHub Actions)
+            options.AddArgument("--headless=new");
+            options.AddArgument("--no-sandbox");
+            options.AddArgument("--disable-dev-shm-usage");
+            options.AddArgument("--disable-gpu");
+            
             _driver = new EdgeDriver(options);
         }
 
