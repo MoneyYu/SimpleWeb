@@ -46,12 +46,12 @@ jobs:
             fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/drop.zip`, Buffer.from(download.data));
 
       - name: Unzip artifact
-        run: unzip drop.zip -d ${{ github.workspace }}/drop
+        run: unzip drop.zip -d ${{ runner.temp }}/drop
 
       - name: Replace tokens in Terraform files
         uses: cschleiden/replace-tokens@v1
         with:
-          files: '["${{ github.workspace }}/drop/tf/*.tf"]'
+          files: '["${{ runner.temp }}/drop/tf/*.tf"]'
         env:
           random: ${{ env.TF_VAR_random }}
 
@@ -61,7 +61,7 @@ jobs:
           terraform_version: 1.6.0
 
       - name: Terraform Init
-        working-directory: ${{ github.workspace }}/drop/tf
+        working-directory: ${{ runner.temp }}/drop/tf
         run: |
           terraform init \
             -backend-config="resource_group_name=${{ secrets.TF_BACKEND_RESOURCE_GROUP }}" \
@@ -70,7 +70,7 @@ jobs:
             -backend-config="key=terraform.tfstate"
 
       - name: Terraform Apply
-        working-directory: ${{ github.workspace }}/drop/tf
+        working-directory: ${{ runner.temp }}/drop/tf
         run: terraform apply -auto-approve
 
   deploy:
@@ -102,7 +102,7 @@ jobs:
             fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/drop.zip`, Buffer.from(download.data));
 
       - name: Unzip artifact
-        run: unzip drop.zip -d ${{ github.workspace }}/drop
+        run: unzip drop.zip -d ${{ runner.temp }}/drop
 
       - name: Azure Login
         uses: azure/login@v2
@@ -113,4 +113,4 @@ jobs:
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          package: ${{ github.workspace }}/drop
+          package: ${{ runner.temp }}/drop
