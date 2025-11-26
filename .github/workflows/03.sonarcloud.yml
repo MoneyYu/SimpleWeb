@@ -19,22 +19,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check SonarCloud configuration
+        id: check-sonar
+        run: |
+          if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "::warning::SonarCloud secrets (SONAR_TOKEN, SONAR_PROJECT_KEY, SONAR_ORGANIZATION) are not configured. Skipping SonarCloud analysis."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.check-sonar.outputs.configured == 'true'
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
 
       - name: Setup .NET 10.0
+        if: steps.check-sonar.outputs.configured == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
 
       - name: Set up JDK 17
+        if: steps.check-sonar.outputs.configured == 'true'
         uses: actions/setup-java@v4
         with:
           java-version: 17
           distribution: 'zulu'
 
       - name: Cache SonarCloud packages
+        if: steps.check-sonar.outputs.configured == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.sonar/cache
@@ -42,6 +56,7 @@ jobs:
           restore-keys: ${{ runner.os }}-sonar
 
       - name: Cache SonarCloud scanner
+        if: steps.check-sonar.outputs.configured == 'true'
         id: cache-sonar-scanner
         uses: actions/cache@v4
         with:
@@ -50,15 +65,17 @@ jobs:
           restore-keys: ${{ runner.os }}-sonar-scanner
 
       - name: Install SonarCloud scanner
-        if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
+        if: steps.check-sonar.outputs.configured == 'true' && steps.cache-sonar-scanner.outputs.cache-hit != 'true'
         run: |
           mkdir -p ./.sonar/scanner
           dotnet tool update dotnet-sonarscanner --tool-path ./.sonar/scanner
 
       - name: .NET Restore
+        if: steps.check-sonar.outputs.configured == 'true'
         run: dotnet restore src/*.sln
 
       - name: Build and analyze
+        if: steps.check-sonar.outputs.configured == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
