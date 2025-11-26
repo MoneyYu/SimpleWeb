@@ -5,6 +5,9 @@ on:
     branches:
       - master
 
+permissions:
+  contents: read
+
 env:
   RESOURCE_GROUP_NAME: 'DemoRgName'
   LOCATION: 'eastasia'

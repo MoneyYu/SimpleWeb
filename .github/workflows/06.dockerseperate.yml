@@ -5,6 +5,9 @@ on:
     branches:
       - master
 
+permissions:
+  contents: read
+
 env:
   REGISTRY: 'your-registry.azurecr.io'  # Set this to your ACR login server
   IMAGE_NAME: 'simpleweb'

@@ -5,6 +5,9 @@ on:
     branches:
       - master
 
+permissions:
+  contents: read
+
 env:
   buildConfiguration: 'Release'
   AZURE_WEBAPP_NAME: 'your-webapp-name'  # Set this to your Azure Web App name
