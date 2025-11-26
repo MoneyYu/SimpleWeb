@@ -28,7 +28,7 @@ jobs:
       - name: Check target branch
         if: github.head_ref != env.targetBranch
         run: |
-          echo "Error: Pull requests to master must originate from the dev branch. Current source branch: ${{ github.head_ref }}"
+          echo "Info: Pull requests to master must originate from the dev branch. Current source branch: ${{ github.head_ref }}"
           exit 1
 
       - name: Setup .NET
