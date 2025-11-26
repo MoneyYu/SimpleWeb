@@ -24,6 +24,9 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
+      - name: Create temp extraction dir
+        run: mkdir -p ${{ runner.temp }}/drop_artifact
+
       - name: Download artifact from build workflow
         uses: actions/github-script@v7
         with:
@@ -46,12 +49,12 @@ jobs:
             fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/drop.zip`, Buffer.from(download.data));
 
       - name: Unzip artifact
-        run: unzip drop.zip -d ${{ runner.temp }}/drop
+        run: unzip drop.zip -d ${{ runner.temp }}/drop_artifact
 
       - name: Replace tokens in Terraform files
         uses: cschleiden/replace-tokens@v1
         with:
-          files: '["${{ runner.temp }}/drop/tf/*.tf"]'
+          files: '["${{ runner.temp }}/drop_artifact/tf/*.tf"]'
         env:
           random: ${{ env.TF_VAR_random }}
 
@@ -61,7 +64,7 @@ jobs:
           terraform_version: 1.6.0
 
       - name: Terraform Init
-        working-directory: ${{ runner.temp }}/drop/tf
+        working-directory: ${{ runner.temp }}/drop_artifact/tf
         run: |
           terraform init \
             -backend-config="resource_group_name=${{ secrets.TF_BACKEND_RESOURCE_GROUP }}" \
@@ -70,12 +73,15 @@ jobs:
             -backend-config="key=terraform.tfstate"
 
       - name: Terraform Apply
-        working-directory: ${{ runner.temp }}/drop/tf
+        working-directory: ${{ runner.temp }}/drop_artifact/tf
         run: terraform apply -auto-approve
 
   deploy:
     runs-on: ubuntu-latest
     needs: infra
+      - name: Create temp extraction dir
+        run: mkdir -p ${{ runner.temp }}/drop_artifact
+
     environment:
       name: 'production'
 
@@ -102,7 +108,7 @@ jobs:
             fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/drop.zip`, Buffer.from(download.data));
 
       - name: Unzip artifact
-        run: unzip drop.zip -d ${{ runner.temp }}/drop
+        run: unzip drop.zip -d ${{ runner.temp }}/drop_artifact
 
       - name: Azure Login
         uses: azure/login@v2
@@ -113,4 +119,4 @@ jobs:
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          package: ${{ runner.temp }}/drop
+          package: ${{ runner.temp }}/drop_artifact
