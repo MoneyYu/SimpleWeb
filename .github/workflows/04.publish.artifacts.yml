@@ -1,0 +1,32 @@
+name: 04.publish.artifacts
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  buildConfiguration: 'Release'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .NET Restore
+        run: dotnet restore src/*.sln
+
+      - name: .NET Publish
+        run: dotnet publish src/SimpleWeb/SimpleWeb.csproj --configuration ${{ env.buildConfiguration }} --output ${{ github.workspace }}/publish
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drop
+          path: ${{ github.workspace }}/publish

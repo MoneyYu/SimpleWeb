@@ -1,0 +1,132 @@
+name: 09.terraform.release
+
+on:
+  workflow_run:
+    workflows: ["09.terraform.build"]
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TF_VAR_random: 'jsniwa'  # Set your random suffix
+  AZURE_WEBAPP_NAME: 'webjsniwa'  # Set this to your Azure Web App name
+
+jobs:
+  infra:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'master' }}
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+    steps:
+      - name: Create temp extraction dir
+        run: mkdir -p ${{ runner.temp }}/drop_artifact
+
+      - name: Download artifact from build workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               run_id: context.payload.workflow_run.id,
+            });
+            let matchArtifact = allArtifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "drop"
+            })[0];
+            if (!matchArtifact) {
+              core.setFailed('No artifact named "drop" found in the build workflow run.');
+              return;
+            }
+            let download = await github.rest.actions.downloadArtifact({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               artifact_id: matchArtifact.id,
+               archive_format: 'zip',
+            });
+            let fs = require('fs');
+            fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/drop.zip`, Buffer.from(download.data));
+
+      - name: Unzip artifact
+        run: unzip drop.zip -d ${{ runner.temp }}/drop_artifact
+
+      - name: Replace tokens in Terraform files
+        uses: cschleiden/replace-tokens@v1
+        with:
+          files: '["${{ runner.temp }}/drop_artifact/tf/*.tf"]'
+        env:
+          random: ${{ env.TF_VAR_random }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Terraform Init
+        working-directory: ${{ runner.temp }}/drop_artifact/tf
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_BACKEND_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=terraform" \
+            -backend-config="key=terraform.tfstate"
+
+      - name: Terraform Apply
+        working-directory: ${{ runner.temp }}/drop_artifact/tf
+        run: terraform apply -auto-approve
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: infra
+    environment:
+      name: 'production'
+
+    steps:
+      - name: Create temp extraction dir
+        run: mkdir -p ${{ runner.temp }}/drop_artifact
+
+      - name: Download artifact from build workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               run_id: context.payload.workflow_run.id,
+            });
+            let matchArtifact = allArtifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "drop"
+            })[0];
+            if (!matchArtifact) {
+              core.setFailed('No artifact named "drop" found in the build workflow run.');
+              return;
+            }
+            let download = await github.rest.actions.downloadArtifact({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               artifact_id: matchArtifact.id,
+               archive_format: 'zip',
+            });
+            let fs = require('fs');
+            fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/drop.zip`, Buffer.from(download.data));
+
+      - name: Unzip artifact
+        run: unzip drop.zip -d ${{ runner.temp }}/drop_artifact
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: ${{ runner.temp }}/drop_artifact

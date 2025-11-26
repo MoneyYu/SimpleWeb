@@ -1,0 +1,43 @@
+name: 09.terraform.build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  buildConfiguration: 'Release'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: .NET Restore
+        run: dotnet restore src/*.sln
+
+      - name: .NET Build
+        run: dotnet build src/*.sln --configuration ${{ env.buildConfiguration }} --no-restore
+
+      - name: .NET Test
+        run: dotnet test src/**/*[Tt]est/*.csproj --configuration ${{ env.buildConfiguration }} --no-restore
+
+      - name: .NET Publish
+        run: dotnet publish src/SimpleWeb/SimpleWeb.csproj --configuration ${{ env.buildConfiguration }} --output ${{ github.workspace }}/publish
+
+      - name: Copy Terraform files
+        run: cp -r tf ${{ github.workspace }}/publish/tf
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drop
+          path: ${{ github.workspace }}/publish

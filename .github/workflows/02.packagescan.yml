@@ -1,0 +1,41 @@
+name: 02.packagescan
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+env:
+  buildConfiguration: 'Release'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: .NET Restore
+        run: dotnet restore src/*.sln
+
+      - name: .NET Build
+        run: dotnet build src/*.sln --configuration ${{ env.buildConfiguration }} --no-restore
+
+      - name: UnitTest
+        run: dotnet test src/SimpleWeb.UnitTest/SimpleWeb.UnitTest.csproj --no-restore --verbosity normal
+
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/dotnet@0.4.0
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --all-projects

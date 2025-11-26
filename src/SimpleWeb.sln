@@ -7,8 +7,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SimpleWeb", "SimpleWeb\Simp
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SimpleWeb.UnitTest", "SimpleWeb.UnitTest\SimpleWeb.UnitTest.csproj", "{3182235B-5CBC-478C-961A-762449786347}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleWeb.UITest", "SimpleWeb.UITest\SimpleWeb.UITest.csproj", "{7F137500-9BA4-427E-9088-93D53CC25426}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleWeb.IntegrationTest", "SimpleWeb.IntegrationTest\SimpleWeb.IntegrationTest.csproj", "{3AB9F40F-0AFB-46C0-8754-F0EE5988CE46}"
 EndProject
 Global
