@@ -18,8 +18,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      image-tag: ${{ github.run_id }}
 
     steps:
       - uses: actions/checkout@v4
