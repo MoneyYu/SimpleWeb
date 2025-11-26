@@ -28,7 +28,7 @@ jobs:
       - name: Check target branch
         if: github.head_ref != env.targetBranch
         run: |
-          echo "It's not dev branch"
+          echo "Error: Pull requests must originate from the dev branch. Current source branch: ${{ github.head_ref }}"
           exit 1
 
       - name: Setup .NET
