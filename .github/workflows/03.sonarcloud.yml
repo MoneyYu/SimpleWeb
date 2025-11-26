@@ -55,3 +55,10 @@ jobs:
           sonarProjectName: SimpleWeb
           # The name of the SonarQube organization in SonarCloud. For hosted SonarQube, skip this setting.
           sonarOrganization: ${{ vars.SONAR_ORGANIZATION }}
+          # Optional command arguments to dotnet build
+          dotnetBuildArguments: ./src
+          # Optional command arguments to dotnet test
+          dotnetTestArguments: ./src --logger trx --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
+          # Optional extra command arguments the the SonarScanner 'begin' command
+          sonarBeginArguments: /d:sonar.cs.opencover.reportsPaths="**/TestResults/**/coverage.opencover.xml" -d:sonar.cs.vstest.reportsPaths="**/TestResults/*.trx"
+        
