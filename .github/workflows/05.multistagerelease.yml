@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,11 +19,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
 
       - name: .NET Restore
         run: dotnet restore src/*.sln
@@ -39,8 +35,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    environment:
-      name: 'production'
+    environment: production
+      name: production
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
 
     steps:

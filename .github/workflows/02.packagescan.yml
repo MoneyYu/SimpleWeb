@@ -29,8 +29,8 @@ jobs:
       - name: .NET Build
         run: dotnet build src/*.sln --configuration ${{ env.buildConfiguration }} --no-restore
 
-      - name: .NET Test
-        run: dotnet test src/**/*[Tt]est/*.csproj --configuration ${{ env.buildConfiguration }} --no-restore
+      - name: UnitTest
+        run: dotnet test src/SimpleWeb.UnitTest/SimpleWeb.UnitTest.csproj --no-restore --verbosity normal
 
       - name: Run Snyk to check for vulnerabilities
         uses: snyk/actions/dotnet@0.4.0

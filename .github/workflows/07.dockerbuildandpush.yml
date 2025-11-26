@@ -1,9 +1,7 @@
 name: 07.dockerbuildandpush
 
 on:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
 
 permissions:
   contents: read

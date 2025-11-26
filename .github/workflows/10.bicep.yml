@@ -1,9 +1,7 @@
 name: 10.bicep
 
 on:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
 
 permissions:
   contents: read
