@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="SimpleWeb.IntegrationTest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Ci.Extensions" Version="6.0.3" />
     <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.21.0" />
     <PackageReference Include="Microsoft.AspNetCore.Diagnostics.HealthChecks" Version="2.2.0" />
