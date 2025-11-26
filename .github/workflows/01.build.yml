@@ -18,4 +18,6 @@ jobs:
       - name: Build
         run: dotnet build src/*.sln --configuration Release --no-restore
       - name: UnitTest
-        run: dotnet test src/**/*UnitTest/*.csproj --no-restore --verbosity normal
+        run: dotnet test src/SimpleWeb.UnitTest/SimpleWeb.UnitTest.csproj --no-restore --verbosity normal
+      - name: IntegrationTest
+        run: dotnet test src/SimpleWeb.IntegrationTest/SimpleWeb.IntegrationTest.csproj --no-restore --verbosity normal
