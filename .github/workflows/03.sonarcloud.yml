@@ -26,10 +26,8 @@ jobs:
     steps:
       - name: Check SonarCloud configuration
         id: check-sonar
-        env:
-          SONAR_TOKEN_SET: ${{ secrets.SONAR_TOKEN != '' }}
         run: |
-          if [ "$SONAR_TOKEN_SET" != "true" ]; then
+          if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
             echo "configured=false" >> $GITHUB_OUTPUT
             echo "::warning::SonarCloud secrets (SONAR_TOKEN, SONAR_PROJECT_KEY, SONAR_ORGANIZATION) are not configured. Skipping SonarCloud analysis."
           else
@@ -46,11 +44,9 @@ jobs:
         run: dotnet restore src/*.sln
 
       - name: .NET Build
-        if: steps.check-sonar.outputs.configured == 'true'
         run: dotnet build src/*.sln --configuration Release --no-restore
 
       - name: SonarScanner for .NET 10 with pull request decoration support
-        if: steps.check-sonar.outputs.configured == 'true'
         uses: highbyte/sonarscan-dotnet@v2.5.0
         with:
           # The key of the SonarQube project

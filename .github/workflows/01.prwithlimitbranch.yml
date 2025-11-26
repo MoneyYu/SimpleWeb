@@ -21,21 +21,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Show variables
-        env:
-          GITHUB_HEAD_REF: ${{ github.head_ref }}
-          GITHUB_BASE_REF: ${{ github.base_ref }}
-          GITHUB_REF: ${{ github.ref }}
         run: |
-          echo "GitHub Ref: $GITHUB_REF"
-          echo "GitHub Head Ref: $GITHUB_HEAD_REF"
-          echo "GitHub Base Ref: $GITHUB_BASE_REF"
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "GitHub Head Ref: ${{ github.head_ref }}"
+          echo "GitHub Base Ref: ${{ github.base_ref }}"
 
       - name: Check target branch
         if: github.head_ref != env.targetBranch
-        env:
-          GITHUB_HEAD_REF: ${{ github.head_ref }}
         run: |
-          echo "Info: Pull requests to master must originate from the dev branch. Current source branch: $GITHUB_HEAD_REF"
+          echo "Info: Pull requests to master must originate from the dev branch. Current source branch: ${{ github.head_ref }}"
           exit 0
 
       - name: Setup .NET
