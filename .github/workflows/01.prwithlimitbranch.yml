@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  buildConfig: 'Release'
+  buildConfiguration: 'Release'
   targetBranch: 'dev'
 
 jobs:
@@ -28,19 +28,19 @@ jobs:
       - name: Check target branch
         if: github.head_ref != env.targetBranch
         run: |
-          echo "Error: Pull requests must originate from the dev branch. Current source branch: ${{ github.head_ref }}"
+          echo "Error: Pull requests to master must originate from the dev branch. Current source branch: ${{ github.head_ref }}"
           exit 1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 6.0.x
+          dotnet-version: 10.0.x
 
       - name: Restore
         run: dotnet restore src/*.sln
 
       - name: Build
-        run: dotnet build src/*.sln --configuration ${{ env.buildConfig }} --no-restore
+        run: dotnet build src/*.sln --configuration ${{ env.buildConfiguration }} --no-restore
 
       - name: Test
-        run: dotnet test src/**/*[Tt]est/*.csproj --configuration ${{ env.buildConfig }} --no-restore
+        run: dotnet test src/**/*[Tt]est/*.csproj --configuration ${{ env.buildConfiguration }} --no-restore

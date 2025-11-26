@@ -21,7 +21,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 6.0.x
+          dotnet-version: 10.0.x
 
       - name: .NET Restore
         run: dotnet restore src/*.sln
@@ -33,7 +33,7 @@ jobs:
         run: dotnet test src/**/*[Tt]est/*.csproj --configuration ${{ env.buildConfiguration }} --no-restore
 
       - name: Run Snyk to check for vulnerabilities
-        uses: snyk/actions/dotnet@master
+        uses: snyk/actions/dotnet@0.4.0
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
