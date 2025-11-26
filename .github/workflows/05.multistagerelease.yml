@@ -1,0 +1,56 @@
+name: 05.multistagerelease
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  buildConfiguration: 'Release'
+  AZURE_WEBAPP_NAME: 'your-webapp-name'  # Set this to your Azure Web App name
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+
+      - name: .NET Restore
+        run: dotnet restore src/*.sln
+
+      - name: .NET Publish
+        run: dotnet publish src/SimpleWeb/SimpleWeb.csproj --configuration ${{ env.buildConfiguration }} --output ${{ github.workspace }}/publish
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drop
+          path: ${{ github.workspace }}/publish
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: 'production'
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: drop
+          path: ${{ github.workspace }}/drop
+
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ${{ github.workspace }}/drop

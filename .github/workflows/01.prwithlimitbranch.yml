@@ -1,0 +1,43 @@
+name: 01.prwithlimitbranch
+
+on:
+  pull_request:
+    branches:
+      - master
+
+env:
+  buildConfig: 'Release'
+  targetBranch: 'dev'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show variables
+        run: |
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "GitHub Head Ref: ${{ github.head_ref }}"
+          echo "GitHub Base Ref: ${{ github.base_ref }}"
+
+      - name: Check target branch
+        if: github.head_ref != env.targetBranch
+        run: |
+          echo "It's not dev branch"
+          exit 1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+
+      - name: Restore
+        run: dotnet restore src/*.sln
+
+      - name: Build
+        run: dotnet build src/*.sln --configuration ${{ env.buildConfig }} --no-restore
+
+      - name: Test
+        run: dotnet test src/**/*[Tt]est/*.csproj --configuration ${{ env.buildConfig }} --no-restore

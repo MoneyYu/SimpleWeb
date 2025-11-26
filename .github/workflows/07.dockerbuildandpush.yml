@@ -1,0 +1,34 @@
+name: 07.dockerbuildandpush
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  REGISTRY: 'your-registry.azurecr.io'  # Set this to your ACR login server
+  IMAGE_NAME: 'simpleweb'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Azure Container Registry
+        uses: azure/docker-login@v2
+        with:
+          login-server: ${{ env.REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/SimpleWeb/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.run_id }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
