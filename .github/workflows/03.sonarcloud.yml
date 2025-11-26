@@ -43,9 +43,6 @@ jobs:
         if: steps.check-sonar.outputs.configured == 'true'
         run: dotnet restore src/*.sln
 
-      - name: .NET Build
-        run: dotnet build src/*.sln --configuration Release --no-restore
-
       - name: SonarScanner for .NET 10 with pull request decoration support
         uses: highbyte/sonarscan-dotnet@v2.5.0
         with:
