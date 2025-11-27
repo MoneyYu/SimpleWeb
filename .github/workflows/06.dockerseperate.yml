@@ -27,9 +27,11 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t ${{ env.REGISTRY }}/${{ toLower(github.repository_owner) }}/${{ env.IMAGE_NAME }}:${{ github.run_id }} -t ${{ env.REGISTRY }}/${{ toLower(github.repository_owner) }}/${{ env.IMAGE_NAME }}:latest -f src/SimpleWeb/Dockerfile .
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          docker build -t ${{ env.REGISTRY }}/$OWNER/${{ env.IMAGE_NAME }}:${{ github.run_id }} -t ${{ env.REGISTRY }}/$OWNER/${{ env.IMAGE_NAME }}:latest -f src/SimpleWeb/Dockerfile .
 
       - name: Push Docker image
         run: |
-          docker push ${{ env.REGISTRY }}/${{ toLower(github.repository_owner) }}/${{ env.IMAGE_NAME }}:${{ github.run_id }}
-          docker push ${{ env.REGISTRY }}/${{ toLower(github.repository_owner) }}/${{ env.IMAGE_NAME }}:latest
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          docker push ${{ env.REGISTRY }}/$OWNER/${{ env.IMAGE_NAME }}:${{ github.run_id }}
+          docker push ${{ env.REGISTRY }}/$OWNER/${{ env.IMAGE_NAME }}:latest
