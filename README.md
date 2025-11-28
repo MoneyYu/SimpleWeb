@@ -2,7 +2,7 @@
 
 [![Build Status](https://github.com/MoneyYu/SimpleWeb/actions/workflows/01.build.yml/badge.svg)](https://github.com/MoneyYu/SimpleWeb/actions/workflows/01.build.yml)
 
-A demo ASP.NET Core 6.0 web application showcasing modern DevOps practices, cloud deployment strategies, and Infrastructure as Code (IaC) patterns.
+A demo ASP.NET Core 10.0 web application showcasing modern DevOps practices, cloud deployment strategies, and Infrastructure as Code (IaC) patterns.
 
 > 📖 [繁體中文版本 (Traditional Chinese Version)](README_zh-TW.md)
 
@@ -34,7 +34,7 @@ SimpleWeb is a demonstration project designed to showcase best practices for:
 
 ## Features
 
-- **ASP.NET Core 6.0 MVC** - Modern web framework with MVC architecture
+- **ASP.NET Core 10.0 MVC** - Modern web framework with MVC architecture
 - **Health Check Endpoint** - Built-in health monitoring at `/health`
 - **File Upload** - Support for local and Azure Blob Storage
 - **Application Insights** - Telemetry and monitoring integration
@@ -58,6 +58,7 @@ SimpleWeb/
 │   └── SimpleWeb.UITest/             # UI automation tests
 ├── ci/                               # Azure DevOps pipeline definitions
 │   ├── 01.build.yml                  # Basic build pipeline
+│   ├── 01.prwithlimitbranch.yml      # PR validation with branch restriction
 │   ├── 02.packagescan.yml            # Security scanning (Snyk)
 │   ├── 03.sonarcloud.yml             # Code quality analysis
 │   ├── 04.publish.artifacts.yml      # Artifact publishing
@@ -79,12 +80,23 @@ SimpleWeb/
 ├── scripts/                          # Utility scripts
 │   └── TestifyZeroDowntime.ps1       # Zero-downtime testing
 └── .github/workflows/                # GitHub Actions
-    └── 01.build.yml                  # Build and test workflow
+    ├── 01.build.yml                  # Build and test workflow
+    ├── 01.prwithlimitbranch.yml      # PR validation with branch restriction
+    ├── 02.packagescan.yml            # Security scanning (Snyk)
+    ├── 03.sonarcloud.yml             # Code quality analysis (SonarCloud)
+    ├── 04.publish.artifacts.yml      # Artifact publishing
+    ├── 05.multistagerelease.yml      # Multi-stage release to Azure Web App
+    ├── 06.dockerseperate.yml         # Docker build and push to GHCR
+    ├── 07.dockerbuildandpush.yml     # Docker build and push to ACR
+    ├── 08.aks.yml                    # Deploy to Azure Kubernetes Service
+    ├── 09.terraform.build.yml        # Terraform build workflow
+    ├── 09.terraform.release.yml      # Terraform release workflow
+    └── 10.bicep.yml                  # Bicep deployment workflow
 ```
 
 ## Prerequisites
 
-- [.NET 6.0 SDK](https://dotnet.microsoft.com/download/dotnet/6.0) or later
+- [.NET 10.0 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) or later
 - [Docker](https://www.docker.com/get-started) (for containerization)
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) (for Azure deployments)
 - [Terraform](https://www.terraform.io/downloads) (for IaC with Terraform)
@@ -218,6 +230,7 @@ This project includes multiple CI/CD pipeline definitions for Azure DevOps:
 | Pipeline | Description |
 |----------|-------------|
 | `01.build.yml` | Basic build and test pipeline |
+| `01.prwithlimitbranch.yml` | PR validation requiring dev branch |
 | `02.packagescan.yml` | Security scanning with Snyk |
 | `03.sonarcloud.yml` | Code quality analysis with SonarCloud |
 | `04.publish.artifacts.yml` | Build artifacts publishing |
@@ -230,10 +243,22 @@ This project includes multiple CI/CD pipeline definitions for Azure DevOps:
 
 ### GitHub Actions
 
-The project also includes a GitHub Actions workflow (`.github/workflows/01.build.yml`) that:
-- Builds the application
-- Runs unit tests
-- Runs integration tests
+The project includes comprehensive GitHub Actions workflows (`.github/workflows/`) that mirror the Azure DevOps pipelines:
+
+| Workflow | Description |
+|----------|-------------|
+| `01.build.yml` | Build and test on push to any branch |
+| `01.prwithlimitbranch.yml` | PR validation requiring PRs to master from dev branch |
+| `02.packagescan.yml` | Security scanning with Snyk |
+| `03.sonarcloud.yml` | Code quality analysis with SonarCloud |
+| `04.publish.artifacts.yml` | Build artifacts publishing |
+| `05.multistagerelease.yml` | Multi-stage deployment to Azure Web App |
+| `06.dockerseperate.yml` | Docker build and push to GitHub Container Registry |
+| `07.dockerbuildandpush.yml` | Docker image build and push to Azure Container Registry |
+| `08.aks.yml` | Build, push to ACR, and deploy to Azure Kubernetes Service |
+| `09.terraform.build.yml` | Build and prepare Terraform artifacts |
+| `09.terraform.release.yml` | Deploy infrastructure with Terraform and deploy app |
+| `10.bicep.yml` | Deploy Azure infrastructure with Bicep |
 
 ## Infrastructure as Code
 
@@ -257,7 +282,7 @@ terraform apply
 This creates:
 - Azure Resource Group
 - App Service Plan (Linux, Standard S1)
-- Azure App Service (with .NET 6.0)
+- Azure App Service (with .NET 10.0)
 
 ### Bicep
 
