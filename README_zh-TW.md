@@ -2,7 +2,7 @@
 
 [![建置狀態](https://github.com/MoneyYu/SimpleWeb/actions/workflows/01.build.yml/badge.svg)](https://github.com/MoneyYu/SimpleWeb/actions/workflows/01.build.yml)
 
-一個展示現代 DevOps 實踐、雲端部署策略和基礎架構即程式碼 (IaC) 模式的 ASP.NET Core 6.0 示範網頁應用程式。
+一個展示現代 DevOps 實踐、雲端部署策略和基礎架構即程式碼 (IaC) 模式的 ASP.NET Core 10.0 示範網頁應用程式。
 
 > 📖 [English Version](README.md)
 
@@ -34,7 +34,7 @@ SimpleWeb 是一個示範專案，旨在展示以下最佳實踐：
 
 ## 功能特色
 
-- **ASP.NET Core 6.0 MVC** - 採用 MVC 架構的現代網頁框架
+- **ASP.NET Core 10.0 MVC** - 採用 MVC 架構的現代網頁框架
 - **健康檢查端點** - 內建於 `/health` 的健康監控功能
 - **檔案上傳** - 支援本機和 Azure Blob 儲存體
 - **Application Insights** - 遙測和監控整合
@@ -58,6 +58,7 @@ SimpleWeb/
 │   └── SimpleWeb.UITest/             # UI 自動化測試
 ├── ci/                               # Azure DevOps 管線定義
 │   ├── 01.build.yml                  # 基本建置管線
+│   ├── 01.prwithlimitbranch.yml      # PR 驗證（限制分支）
 │   ├── 02.packagescan.yml            # 安全性掃描 (Snyk)
 │   ├── 03.sonarcloud.yml             # 程式碼品質分析
 │   ├── 04.publish.artifacts.yml      # 成品發布
@@ -79,12 +80,23 @@ SimpleWeb/
 ├── scripts/                          # 工具腳本
 │   └── TestifyZeroDowntime.ps1       # 零停機時間測試
 └── .github/workflows/                # GitHub Actions
-    └── 01.build.yml                  # 建置和測試工作流程
+    ├── 01.build.yml                  # 建置和測試工作流程
+    ├── 01.prwithlimitbranch.yml      # PR 驗證（限制分支）
+    ├── 02.packagescan.yml            # 安全性掃描 (Snyk)
+    ├── 03.sonarcloud.yml             # 程式碼品質分析 (SonarCloud)
+    ├── 04.publish.artifacts.yml      # 成品發布
+    ├── 05.multistagerelease.yml      # 多階段發布至 Azure Web App
+    ├── 06.dockerseperate.yml         # Docker 建置並推送至 GHCR
+    ├── 07.dockerbuildandpush.yml     # Docker 建置並推送至 ACR
+    ├── 08.aks.yml                    # 部署至 Azure Kubernetes Service
+    ├── 09.terraform.build.yml        # Terraform 建置工作流程
+    ├── 09.terraform.release.yml      # Terraform 發布工作流程
+    └── 10.bicep.yml                  # Bicep 部署工作流程
 ```
 
 ## 環境需求
 
-- [.NET 6.0 SDK](https://dotnet.microsoft.com/download/dotnet/6.0) 或更新版本
+- [.NET 10.0 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) 或更新版本
 - [Docker](https://www.docker.com/get-started)（用於容器化）
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)（用於 Azure 部署）
 - [Terraform](https://www.terraform.io/downloads)（用於 Terraform IaC）
@@ -218,6 +230,7 @@ docker-compose down
 | 管線 | 說明 |
 |----------|-------------|
 | `01.build.yml` | 基本建置和測試管線 |
+| `01.prwithlimitbranch.yml` | PR 驗證（需要來自 dev 分支） |
 | `02.packagescan.yml` | 使用 Snyk 進行安全性掃描 |
 | `03.sonarcloud.yml` | 使用 SonarCloud 進行程式碼品質分析 |
 | `04.publish.artifacts.yml` | 建置成品發布 |
@@ -230,10 +243,22 @@ docker-compose down
 
 ### GitHub Actions
 
-專案也包含 GitHub Actions 工作流程（`.github/workflows/01.build.yml`），功能包括：
-- 建置應用程式
-- 執行單元測試
-- 執行整合測試
+專案包含完整的 GitHub Actions 工作流程（`.github/workflows/`），與 Azure DevOps 管線相對應：
+
+| 工作流程 | 說明 |
+|----------|-------------|
+| `01.build.yml` | 推送至任何分支時建置和測試 |
+| `01.prwithlimitbranch.yml` | PR 驗證（需要 PR 從 dev 分支發起至 master） |
+| `02.packagescan.yml` | 使用 Snyk 進行安全性掃描 |
+| `03.sonarcloud.yml` | 使用 SonarCloud 進行程式碼品質分析 |
+| `04.publish.artifacts.yml` | 建置成品發布 |
+| `05.multistagerelease.yml` | 多階段部署至 Azure Web App |
+| `06.dockerseperate.yml` | Docker 建置並推送至 GitHub Container Registry |
+| `07.dockerbuildandpush.yml` | Docker 映像建置並推送至 Azure Container Registry |
+| `08.aks.yml` | 建置、推送至 ACR 並部署至 Azure Kubernetes Service |
+| `09.terraform.build.yml` | 建置並準備 Terraform 成品 |
+| `09.terraform.release.yml` | 使用 Terraform 部署基礎架構並部署應用程式 |
+| `10.bicep.yml` | 使用 Bicep 部署 Azure 基礎架構 |
 
 ## 基礎架構即程式碼
 
@@ -257,7 +282,7 @@ terraform apply
 這會建立：
 - Azure 資源群組
 - App Service 方案（Linux、Standard S1）
-- Azure App Service（.NET 6.0）
+- Azure App Service（.NET 10.0）
 
 ### Bicep
 
