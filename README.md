@@ -1,4 +1,4 @@
-# SimpleWeb
+# SimpleWeb 1208
 
 [![Build Status](https://github.com/MoneyYu/SimpleWeb/actions/workflows/01.build.yml/badge.svg)](https://github.com/MoneyYu/SimpleWeb/actions/workflows/01.build.yml)
 
@@ -8,19 +8,40 @@ A demo ASP.NET Core 10.0 web application showcasing modern DevOps practices, clo
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Features](#features)
-- [Project Structure](#project-structure)
-- [Prerequisites](#prerequisites)
-- [Getting Started](#getting-started)
-- [Configuration](#configuration)
-- [Running Tests](#running-tests)
-- [Docker Support](#docker-support)
-- [CI/CD Pipelines](#cicd-pipelines)
-- [Infrastructure as Code](#infrastructure-as-code)
-- [Kubernetes Deployment](#kubernetes-deployment)
-- [Contributing](#contributing)
-- [License](#license)
+- [SimpleWeb 1208](#simpleweb-1208)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+  - [Features](#features)
+  - [Project Structure](#project-structure)
+  - [Prerequisites](#prerequisites)
+  - [Getting Started](#getting-started)
+    - [Clone the Repository](#clone-the-repository)
+    - [Restore Dependencies](#restore-dependencies)
+    - [Build the Application](#build-the-application)
+    - [Run the Application](#run-the-application)
+  - [Configuration](#configuration)
+    - [Application Settings](#application-settings)
+    - [User Secrets (Development)](#user-secrets-development)
+    - [Environment Variables](#environment-variables)
+  - [Running Tests](#running-tests)
+    - [Unit Tests](#unit-tests)
+    - [Integration Tests](#integration-tests)
+    - [All Tests](#all-tests)
+  - [Docker Support](#docker-support)
+    - [Build Docker Image](#build-docker-image)
+    - [Run Container](#run-container)
+    - [Docker Compose (Optional)](#docker-compose-optional)
+  - [CI/CD Pipelines](#cicd-pipelines)
+    - [GitHub Actions](#github-actions)
+  - [Infrastructure as Code](#infrastructure-as-code)
+    - [Terraform](#terraform)
+    - [Bicep](#bicep)
+  - [Kubernetes Deployment](#kubernetes-deployment)
+    - [Kubernetes Resources](#kubernetes-resources)
+  - [API Endpoints](#api-endpoints)
+  - [Health Check](#health-check)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 ## Overview
 
