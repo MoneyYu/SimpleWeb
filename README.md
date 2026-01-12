@@ -1,4 +1,4 @@
-# SimpleWeb 1208
+# SimpleWeb
 
 [![Build Status](https://github.com/MoneyYu/SimpleWeb/actions/workflows/01.build.yml/badge.svg)](https://github.com/MoneyYu/SimpleWeb/actions/workflows/01.build.yml)
 
