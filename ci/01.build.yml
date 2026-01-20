@@ -4,31 +4,31 @@
 # https://docs.microsoft.com/azure/devops/pipelines/languages/dotnet-core
 
 trigger:
-- master
+  - master
 
 pool:
-  vmImage: 'ubuntu-20.04'
+  vmImage: "ubuntu-24.04"
 
 variables:
-  buildConfiguration: 'Release'
+  buildConfiguration: "Release"
 
 steps:
-- task: DotNetCoreCLI@2
-  displayName: '.NET Restore'
-  inputs:
-    command: 'restore'
-    projects: '**/*.csproj'
-    feedsToUse: 'select'
-    
-- task: DotNetCoreCLI@2
-  displayName: '.NET Build'
-  inputs:
-    command: 'build'
-    projects: '**/*.csproj'
-    
-- task: DotNetCoreCLI@2
-  displayName: '.NET Test'
-  inputs:
-    command: test
-    projects: '**/*[Tt]est/*.csproj'
-    arguments: '--configuration $(BuildConfiguration) --no-restore'
+  - task: DotNetCoreCLI@2
+    displayName: ".NET Restore"
+    inputs:
+      command: "restore"
+      projects: "**/*.csproj"
+      feedsToUse: "select"
+
+  - task: DotNetCoreCLI@2
+    displayName: ".NET Build"
+    inputs:
+      command: "build"
+      projects: "**/*.csproj"
+
+  - task: DotNetCoreCLI@2
+    displayName: ".NET Test"
+    inputs:
+      command: test
+      projects: "**/*[Tt]est/*.csproj"
+      arguments: "--configuration $(BuildConfiguration) --no-restore"
