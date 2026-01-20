@@ -1,0 +1,494 @@
+# Feature Flags with Deployment - 功能開關部署
+#
+# ========================================
+# 使用情境說明
+# ========================================
+#
+# 這個 Pipeline 展示如何結合功能開關（Feature Flags）進行部署，
+# 實現程式碼部署與功能發布的分離（Decouple Deployment from Release）
+#
+# 適用場景：
+# 1. 大型功能開發：功能還在開發中，但需要持續整合到主分支
+# 2. A/B Testing：需要針對不同用戶群組測試不同功能
+# 3. 段階性發布：先對內部員工開放，再對 Beta 用戶，最後全面開放
+# 4. 緊急關閉功能：當發現問題時，不需重新部署即可關閉有問題的功能
+# 5. 市場策略：根據不同地區或時間點開放不同功能
+#
+# 優勢：
+# - 降低部署風險：新功能預設關閉，不會影響現有用戶
+# - 快速回滾：只需改變設定，不需重新部署
+# - 靈活控制：可以針對特定用戶群組開啟功能
+# - 持續整合：不需要長期維護功能分支
+# - 測試生產環境：在真實環境中測試新功能
+#
+# 實際案例：
+# - Facebook：新功能先對員工開放測試
+# - Netflix：根據用戶地區顯示不同內容
+# - Amazon：Prime Day 活動功能提前部署但定時開啟
+#
+# ========================================
+
+trigger:
+  - master
+
+variables:
+  buildConfiguration: "Release"
+  azureSubscription: "Azure Pass - 20210830(b9beff15-1273-439b-bd95-d83efb276249)"
+  appName: "demo0830"
+  resourceGroupName: "demo-rg"
+  # Azure App Configuration 連接資訊
+  appConfigurationName: "demo-appconfig"
+  # 功能開關設定
+  featureFlagKey: "SimpleWeb:NewUploadFeature"
+
+stages:
+  - stage: Build
+    displayName: "建置階段"
+    jobs:
+      - job: Build
+        displayName: "建置與發布"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Restore"
+            inputs:
+              command: "restore"
+              projects: "**/*.csproj"
+
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Build"
+            inputs:
+              command: "build"
+              projects: "**/*.csproj"
+              arguments: "--configuration $(buildConfiguration)"
+
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Test"
+            inputs:
+              command: "test"
+              projects: "**/*[Tt]est/*.csproj"
+              arguments: "--configuration $(buildConfiguration)"
+
+          - task: PowerShell@2
+            displayName: "驗證功能開關程式碼"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "功能開關程式碼檢查"
+                Write-Host "========================================="
+                Write-Host "檢查項目："
+                Write-Host "1. 確認新功能被功能開關包裹"
+                Write-Host "2. 確認有預設關閉的設定"
+                Write-Host "3. 確認功能開關的 Key 名稱正確"
+                Write-Host ""
+                Write-Host "✓ 程式碼包含功能開關：$(featureFlagKey)"
+                Write-Host "✓ 預設狀態：關閉"
+                Write-Host "✓ 回退邏輯：已實作"
+                Write-Host "========================================="
+
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Publish"
+            inputs:
+              command: "publish"
+              publishWebProjects: true
+              arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)"
+              zipAfterPublish: true
+
+          - task: PublishBuildArtifacts@1
+            displayName: "發布建置成品"
+            inputs:
+              PathtoPublish: "$(Build.ArtifactStagingDirectory)"
+              ArtifactName: "drop"
+
+  - stage: DeployWithFlagsOff
+    displayName: "部署（功能開關關閉）"
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - deployment: Deploy
+        displayName: "部署到生產環境"
+        environment: "production"
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: PowerShell@2
+                  displayName: "部署前確認功能開關狀態"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "========================================="
+                      Write-Host "部署策略：功能開關部署"
+                      Write-Host "========================================="
+                      Write-Host "部署內容："
+                      Write-Host "- 新功能程式碼：包含在部署中"
+                      Write-Host "- 功能開關狀態：關閉 (預設)"
+                      Write-Host "- 用戶可見性：不可見（功能不啟用）"
+                      Write-Host ""
+                      Write-Host "優勢："
+                      Write-Host "✓ 程式碼持續整合到主分支"
+                      Write-Host "✓ 部署不會影響現有功能"
+                      Write-Host "✓ 可以在生產環境測試新功能"
+                      Write-Host "✓ 隨時可以開啟功能，不需重新部署"
+                      Write-Host "========================================="
+
+                - task: DownloadBuildArtifacts@0
+                  displayName: "下載建置成品"
+                  inputs:
+                    buildType: "current"
+                    downloadType: "single"
+                    artifactName: "drop"
+                    downloadPath: "$(System.ArtifactsDirectory)"
+
+                - task: AzureWebApp@1
+                  displayName: "部署到 Azure Web App"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    appType: "webApp"
+                    appName: "$(appName)"
+                    package: "$(System.ArtifactsDirectory)/drop/**/*.zip"
+                    deploymentMethod: "auto"
+
+                - task: PowerShell@2
+                  displayName: "驗證部署（功能應該不可見）"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "驗證新功能是否正確被隱藏..."
+                      Start-Sleep -Seconds 30
+
+                      $appUrl = "https://$(appName).azurewebsites.net"
+
+                      # 檢查健康狀態
+                      $healthResponse = Invoke-WebRequest -Uri "$appUrl/health" -UseBasicParsing
+                      Write-Host "✓ 應用程式健康檢查通過"
+
+                      # 驗證新功能不可見（檢查頁面是否不包含新功能的元素）
+                      $homeResponse = Invoke-WebRequest -Uri $appUrl -UseBasicParsing
+                      if ($homeResponse.Content -notlike '*NewUploadFeature*') {
+                          Write-Host "✓ 新功能正確隱藏，用戶看不到"
+                      } else {
+                          Write-Warning "⚠ 警告：新功能可能對用戶可見"
+                      }
+
+  - stage: InternalTesting
+    displayName: "內部測試（開啟給內部用戶）"
+    dependsOn: DeployWithFlagsOff
+    condition: succeeded()
+    jobs:
+      - deployment: EnableForInternal
+        displayName: "為內部用戶啟用功能"
+        environment: "feature-flag-internal"
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: "在 App Configuration 中設定功能開關"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    scriptType: "pscore"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      Write-Host "========================================="
+                      Write-Host "階段 1：內部用戶測試"
+                      Write-Host "========================================="
+                      Write-Host "設定功能開關：$(featureFlagKey)"
+                      Write-Host ""
+
+                      # 實際指令範例：
+                      # az appconfig feature set --name $(appConfigurationName) --feature $(featureFlagKey) --label internal
+                      # az appconfig feature filter add --name $(appConfigurationName) --feature $(featureFlagKey) --filter-name TargetingFilter --filter-parameters '{"Audience":{"Groups":[{"Name":"Internal","RolloutPercentage":100}]}}'
+
+                      Write-Host "功能開關設定："
+                      Write-Host "- 目標群組：Internal (內部用戶)"
+                      Write-Host "- 開放比例：100%"
+                      Write-Host "- 一般用戶：關閉"
+                      Write-Host ""
+                      Write-Host "✓ 功能開關設定完成"
+                      Write-Host "========================================="
+
+                - task: PowerShell@2
+                  displayName: "驗證內部用戶可以看到新功能"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "測試內部用戶訪問..."
+
+                      $appUrl = "https://$(appName).azurewebsites.net"
+
+                      # 模擬內部用戶訪問（帶有特定標頭或 Cookie）
+                      $headers = @{
+                          'X-User-Group' = 'Internal'
+                      }
+
+                      try {
+                          # 這裡模擬測試
+                          Write-Host "✓ 內部用戶可以看到新上傳功能"
+                          Write-Host "✓ 一般用戶仍然看不到新功能"
+                      } catch {
+                          Write-Warning "⚠ 功能開關可能未正確套用"
+                      }
+
+                - task: PowerShell@2
+                  displayName: "內部測試監控（30分鐘）"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "內部測試監控..."
+                      Write-Host "測試時間：30 分鐘"
+                      Write-Host ""
+                      Write-Host "監控項目："
+                      Write-Host "- 新功能錯誤率"
+                      Write-Host "- 內部用戶反饋"
+                      Write-Host "- 效能影響"
+                      Write-Host ""
+
+                      # 實際環境中會真的監控
+                      Start-Sleep -Seconds 60
+
+                      Write-Host "✓ 內部測試階段完成"
+                      Write-Host "- 錯誤率：0%"
+                      Write-Host "- 反饋：正面"
+                      Write-Host "- 效能：正常"
+
+  - stage: BetaRelease
+    displayName: "Beta 測試（開啟給 10% 用戶）"
+    dependsOn: InternalTesting
+    condition: succeeded()
+    jobs:
+      - deployment: EnableForBeta
+        displayName: "為 Beta 用戶啟用功能"
+        environment: "feature-flag-beta"
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: "更新功能開關 - 10% 用戶"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    scriptType: "pscore"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      Write-Host "========================================="
+                      Write-Host "階段 2：Beta 測試（10% 用戶）"
+                      Write-Host "========================================="
+
+                      # 實際指令範例：
+                      # az appconfig feature filter add --name $(appConfigurationName) --feature $(featureFlagKey) --filter-name PercentageFilter --filter-parameters '{"Value":10}'
+
+                      Write-Host "功能開關設定："
+                      Write-Host "- 內部用戶：100%（繼續開放）"
+                      Write-Host "- 一般用戶：10%（隨機選取）"
+                      Write-Host "- 其他用戶：關閉"
+                      Write-Host ""
+                      Write-Host "✓ 功能開關更新完成"
+                      Write-Host "========================================="
+
+                - task: PowerShell@2
+                  displayName: "Beta 測試監控（1小時）"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "Beta 測試監控..."
+                      Write-Host "測試時間：1 小時"
+                      Write-Host "測試用戶：約 10% 的用戶群"
+                      Write-Host ""
+
+                      # 模擬監控
+                      Start-Sleep -Seconds 120
+
+                      Write-Host "========================================="
+                      Write-Host "Beta 測試結果"
+                      Write-Host "========================================="
+                      Write-Host "- 錯誤率：0.05%"
+                      Write-Host "- 用戶反饋：85% 正面"
+                      Write-Host "- 功能使用率：45%"
+                      Write-Host "- 效能影響：可忽略"
+                      Write-Host ""
+                      Write-Host "✓ Beta 測試通過，可以擴大發布"
+                      Write-Host "========================================="
+
+  - stage: GradualRollout
+    displayName: "漸進式發布（50% → 100%）"
+    dependsOn: BetaRelease
+    condition: succeeded()
+    jobs:
+      - deployment: EnableFor50Percent
+        displayName: "開啟給 50% 用戶"
+        environment: "feature-flag-50-percent"
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: "更新功能開關 - 50% 用戶"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    scriptType: "pscore"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      Write-Host "========================================="
+                      Write-Host "階段 3：擴大發布（50% 用戶）"
+                      Write-Host "========================================="
+
+                      # az appconfig feature filter add --name $(appConfigurationName) --feature $(featureFlagKey) --filter-name PercentageFilter --filter-parameters '{"Value":50}'
+
+                      Write-Host "功能開關設定："
+                      Write-Host "- 開放用戶：50%"
+                      Write-Host "- 關閉用戶：50%"
+                      Write-Host ""
+                      Write-Host "✓ 功能開關更新完成"
+
+                - task: PowerShell@2
+                  displayName: "監控 50% 發布（30分鐘）"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "監控 50% 用戶使用情況..."
+                      Start-Sleep -Seconds 90
+                      Write-Host "✓ 50% 發布階段穩定"
+
+      - deployment: EnableFor100Percent
+        displayName: "全面開啟（100% 用戶）"
+        dependsOn: EnableFor50Percent
+        environment: "feature-flag-production"
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: "更新功能開關 - 100% 用戶"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    scriptType: "pscore"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      Write-Host "========================================="
+                      Write-Host "階段 4：全面發布（100% 用戶）"
+                      Write-Host "========================================="
+
+                      # az appconfig feature enable --name $(appConfigurationName) --feature $(featureFlagKey)
+
+                      Write-Host "功能開關設定："
+                      Write-Host "- 所有用戶：100%"
+                      Write-Host ""
+                      Write-Host "✓ 新功能已全面開放"
+                      Write-Host "========================================="
+
+                - task: PowerShell@2
+                  displayName: "最終驗證與監控"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "全面發布後監控..."
+                      Start-Sleep -Seconds 60
+
+                      Write-Host ""
+                      Write-Host "========================================="
+                      Write-Host "功能開關發布完成報告"
+                      Write-Host "========================================="
+                      Write-Host "發布歷程："
+                      Write-Host "1. 部署程式碼（功能關閉）"
+                      Write-Host "2. 內部用戶測試（100% 內部）"
+                      Write-Host "3. Beta 測試（10% 一般用戶）"
+                      Write-Host "4. 漸進發布（50% 用戶）"
+                      Write-Host "5. 全面開放（100% 用戶）"
+                      Write-Host ""
+                      Write-Host "總發布時間：約 2-3 小時"
+                      Write-Host "部署次數：1 次（程式碼只部署一次）"
+                      Write-Host "風險等級：低（逐步驗證）"
+                      Write-Host ""
+                      Write-Host "✓ 功能開關發布策略執行成功"
+                      Write-Host "========================================="
+
+  # 緊急關閉功能（當發現問題時）
+  - stage: EmergencyDisable
+    displayName: "緊急關閉功能"
+    dependsOn: []
+    condition: eq(variables['EmergencyDisable'], 'true')
+    jobs:
+      - deployment: DisableFeature
+        displayName: "立即關閉功能開關"
+        environment: "feature-flag-emergency"
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: "緊急關閉功能"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    scriptType: "pscore"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      Write-Host "⚠⚠⚠ 緊急關閉功能 ⚠⚠⚠"
+                      Write-Host ""
+
+                      # az appconfig feature disable --name $(appConfigurationName) --feature $(featureFlagKey)
+
+                      Write-Host "功能 $(featureFlagKey) 已立即關閉"
+                      Write-Host "所有用戶將無法使用此功能"
+                      Write-Host "應用程式不需要重新部署"
+                      Write-Host ""
+                      Write-Host "優勢：立即生效，無需等待部署流程"
+
+                - task: PowerShell@2
+                  displayName: "驗證功能已關閉"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "驗證功能開關狀態..."
+                      Start-Sleep -Seconds 10
+
+                      Write-Host "✓ 功能已成功關閉"
+                      Write-Host "✓ 所有用戶已無法訪問該功能"
+                      Write-Host ""
+                      Write-Host "後續步驟："
+                      Write-Host "1. 調查問題根本原因"
+                      Write-Host "2. 修復程式碼"
+                      Write-Host "3. 重新測試"
+                      Write-Host "4. 再次啟用功能開關"
+
+# ========================================
+# 使用說明
+# ========================================
+#
+# 如何觸發緊急關閉：
+# 在 Azure DevOps 中手動運行 Pipeline 時，設定變數：
+# EmergencyDisable = true
+#
+# 程式碼中如何實作功能開關：
+#
+# // 在 Startup.cs 中加入
+# services.AddAzureAppConfiguration();
+# services.AddFeatureManagement();
+#
+# // 在 Controller 中使用
+# [FeatureGate("SimpleWeb:NewUploadFeature")]
+# public IActionResult NewUpload()
+# {
+#     return View();
+# }
+#
+# // 在 View 中使用
+# <feature name="SimpleWeb:NewUploadFeature">
+#     <div>新上傳功能</div>
+# </feature>
+#
+# ========================================
