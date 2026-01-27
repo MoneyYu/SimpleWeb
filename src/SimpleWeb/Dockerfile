@@ -7,9 +7,9 @@ EXPOSE 443
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY ["src/SimpleWeb/SimpleWeb.csproj", "./"]
+COPY ["SimpleWeb.csproj", "./"]
 RUN dotnet restore "SimpleWeb.csproj"
-COPY src/SimpleWeb/. .
+COPY . .
 RUN dotnet build "SimpleWeb.csproj" -c Release -o /app/build
 
 FROM build AS publish
