@@ -144,7 +144,7 @@ jobs:
           # Get subscription ID
           SUBSCRIPTION_ID=$(az account show --query id --output tsv)
           
-          # Check if role assignment already exists
+          # Check if Contributor role assignment already exists
           EXISTING_ASSIGNMENT=$(az role assignment list \
             --assignee ${{ steps.identity.outputs.IDENTITY_PRINCIPAL_ID }} \
             --role "Contributor" \
@@ -159,10 +159,31 @@ jobs:
               --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/${{ env.AZURE_RESOURCE_GROUP }}" \
               --only-show-errors
             
-            # Wait for role assignment to propagate
+            echo "Waiting for role assignment to propagate..."
             sleep 30
           else
-            echo "Role assignment already exists"
+            echo "Contributor role assignment already exists"
+          fi
+          
+          # Also assign Storage Blob Data Contributor for AIB staging storage
+          STORAGE_ROLE_ASSIGNMENT=$(az role assignment list \
+            --assignee ${{ steps.identity.outputs.IDENTITY_PRINCIPAL_ID }} \
+            --role "Storage Blob Data Contributor" \
+            --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/${{ env.AZURE_RESOURCE_GROUP }}" \
+            --query "[0].id" --output tsv)
+          
+          if [ -z "$STORAGE_ROLE_ASSIGNMENT" ]; then
+            echo "Assigning Storage Blob Data Contributor role to identity..."
+            az role assignment create \
+              --assignee ${{ steps.identity.outputs.IDENTITY_PRINCIPAL_ID }} \
+              --role "Storage Blob Data Contributor" \
+              --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/${{ env.AZURE_RESOURCE_GROUP }}" \
+              --only-show-errors
+            
+            echo "Waiting for role assignment to propagate..."
+            sleep 30
+          else
+            echo "Storage Blob Data Contributor role assignment already exists"
           fi
 
       - name: Prepare AIB Template
