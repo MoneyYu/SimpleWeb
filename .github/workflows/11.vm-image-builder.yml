@@ -69,14 +69,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Register Azure Resource Providers
-        run: |
-          echo "Registering required Azure resource providers..."
-          az provider register --namespace Microsoft.VirtualMachineImages --wait
-          az provider register --namespace Microsoft.Compute --wait
-          az provider register --namespace Microsoft.Storage --wait
-          az provider register --namespace Microsoft.Network --wait
-          echo "Resource providers registered successfully"
+      
 
       - name: Create or Update Shared Image Gallery
         id: sig
