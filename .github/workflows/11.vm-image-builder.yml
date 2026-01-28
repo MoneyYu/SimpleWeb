@@ -1,4 +1,4 @@
-name: Build VM Image with Azure Image Builder
+name: 11.vm-image-builder
 
 on:
   push:
