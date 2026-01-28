@@ -8,7 +8,7 @@ on:
 
 env:
   DOTNET_VERSION: '10.0.x'
-  AZURE_RESOURCE_GROUP: 'rg-simpleweb-imagebuilder'
+  AZURE_RESOURCE_GROUP: 'Demo'
   LOCATION: 'eastus'
   IMAGE_TEMPLATE_NAME: 'simpleweb-vm-template'
   SIG_NAME: 'sig_simpleweb'
@@ -22,11 +22,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore dependencies
         run: dotnet restore src/SimpleWeb/SimpleWeb.csproj
@@ -69,53 +64,10 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "Image version: $VERSION"
 
-      - name: Download application artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: simpleweb-package
-
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Upload SimpleWeb package to Azure Storage
-        id: upload-package
-        run: |
-          # Create storage account if not exists (for artifacts)
-          STORAGE_ACCOUNT_NAME="stgsimpleweb$(echo $RANDOM | md5sum | head -c 10)"
-          CONTAINER_NAME="artifacts"
-          
-          az storage account create \
-            --name $STORAGE_ACCOUNT_NAME \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --location ${{ env.LOCATION }} \
-            --sku Standard_LRS \
-            --allow-blob-public-access true
-          
-          # Create container
-          az storage container create \
-            --name $CONTAINER_NAME \
-            --account-name $STORAGE_ACCOUNT_NAME \
-            --public-access blob
-          
-          # Upload package
-          az storage blob upload \
-            --account-name $STORAGE_ACCOUNT_NAME \
-            --container-name $CONTAINER_NAME \
-            --name SimpleWeb.zip \
-            --file SimpleWeb.zip \
-            --overwrite
-          
-          # Get blob URL
-          BLOB_URL=$(az storage blob url \
-            --account-name $STORAGE_ACCOUNT_NAME \
-            --container-name $CONTAINER_NAME \
-            --name SimpleWeb.zip \
-            --output tsv)
-          
-          echo "BLOB_URL=$BLOB_URL" >> $GITHUB_OUTPUT
-          echo "STORAGE_ACCOUNT_NAME=$STORAGE_ACCOUNT_NAME" >> $GITHUB_OUTPUT
 
       - name: Create or Update Shared Image Gallery
         id: sig
@@ -205,7 +157,6 @@ jobs:
           # Replace placeholders in template
           sed -i 's|<LOCATION>|${{ env.LOCATION }}|g' ${{ env.AIB_TEMPLATE_PATH }}
           sed -i 's|<USER_ASSIGNED_IDENTITY_RESOURCE_ID>|${{ steps.identity.outputs.IDENTITY_ID }}|g' ${{ env.AIB_TEMPLATE_PATH }}
-          sed -i 's|<ARTIFACT_STORAGE_URL>|${{ steps.upload-package.outputs.BLOB_URL }}|g' ${{ env.AIB_TEMPLATE_PATH }}
           sed -i 's|<SHARED_IMAGE_GALLERY_IMAGE_ID>|${{ steps.sig.outputs.GALLERY_IMAGE_ID }}|g' ${{ env.AIB_TEMPLATE_PATH }}
           sed -i 's|<REGION>|${{ env.LOCATION }}|g' ${{ env.AIB_TEMPLATE_PATH }}
           
@@ -283,18 +234,10 @@ jobs:
           echo "⚠️ Build monitoring timed out after $MAX_ATTEMPTS minutes"
           exit 1
 
-      - name: Cleanup Temporary Storage
+      - name: Cleanup
         if: always()
         run: |
-          # Optional: Clean up the storage account used for artifacts
-          if [ -n "${{ steps.upload-package.outputs.STORAGE_ACCOUNT_NAME }}" ]; then
-            echo "Keeping storage account for future builds: ${{ steps.upload-package.outputs.STORAGE_ACCOUNT_NAME }}"
-            # Uncomment to delete:
-            # az storage account delete \
-            #   --name ${{ steps.upload-package.outputs.STORAGE_ACCOUNT_NAME }} \
-            #   --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            #   --yes
-          fi
+          echo "Cleanup completed"
 
       - name: Summary
         if: success()

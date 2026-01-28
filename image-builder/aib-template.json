@@ -68,18 +68,32 @@
         ]
       },
       {
-        "type": "File",
-        "name": "Copy SimpleWeb Application",
-        "sourceUri": "<ARTIFACT_STORAGE_URL>/SimpleWeb.zip",
-        "destination": "C:\\Temp\\SimpleWeb.zip"
+        "type": "PowerShell",
+        "name": "Build and Deploy SimpleWeb",
+        "inline": [
+          "Write-Host 'Building SimpleWeb application from source...'",
+          "New-Item -ItemType Directory -Force -Path C:\\Temp\\SimpleWeb",
+          "Set-Location C:\\Temp\\SimpleWeb",
+          "",
+          "# Clone the repository (or download specific version)",
+          "Write-Host 'Cloning SimpleWeb repository...'",
+          "git clone https://github.com/MoneyYu/SimpleWeb.git .",
+          "",
+          "# Build and publish the application",
+          "Write-Host 'Building application...'",
+          "dotnet restore src/SimpleWeb/SimpleWeb.csproj",
+          "dotnet build src/SimpleWeb/SimpleWeb.csproj --configuration Release --no-restore",
+          "dotnet publish src/SimpleWeb/SimpleWeb.csproj --configuration Release --output C:\\inetpub\\SimpleWeb --no-build",
+          "",
+          "# Set permissions",
+          "icacls 'C:\\inetpub\\SimpleWeb' /grant 'IIS_IUSRS:(OI)(CI)F' /T",
+          "Write-Host 'Application deployed successfully'"
+        ]
       },
       {
         "type": "PowerShell",
-        "name": "Extract and Configure SimpleWeb",
+        "name": "Configure IIS",
         "inline": [
-          "Write-Host 'Extracting SimpleWeb application...'",
-          "Expand-Archive -Path C:\\Temp\\SimpleWeb.zip -DestinationPath C:\\inetpub\\SimpleWeb -Force",
-          "",
           "Write-Host 'Configuring IIS Application Pool...'",
           "Import-Module WebAdministration",
           "",
