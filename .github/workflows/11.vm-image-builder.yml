@@ -223,6 +223,23 @@ jobs:
           
           cat ${{ env.AIB_TEMPLATE_PATH }}
 
+      - name: Configure Resource Group for AIB
+        run: |
+          # Ensure any existing staging storage accounts allow shared key access
+          echo "Checking for existing staging storage accounts..."
+          STORAGE_ACCOUNTS=$(az storage account list \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "[?starts_with(name, 'aibstg')].name" --output tsv)
+          
+          for STORAGE_ACCOUNT in $STORAGE_ACCOUNTS; do
+            echo "Enabling shared key access on $STORAGE_ACCOUNT..."
+            az storage account update \
+              --name $STORAGE_ACCOUNT \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --allow-shared-key-access true \
+              --only-show-errors || true
+          done
+
       - name: Create or Update Image Template
         run: |
           # Check if template exists

@@ -15,6 +15,10 @@
   "properties": {
     "buildTimeoutInMinutes": 120,
     "stagingResourceGroup": "/subscriptions/ffc7fbc7-3840-4835-ad88-4eb5015d7dac/resourceGroups/Demo",
+    "validate": {
+      "continueDistributeOnFailure": false,
+      "inVMValidations": []
+    },
     "vmProfile": {
       "vmSize": "Standard_D2s_v3",
       "osDiskSizeGB": 127
