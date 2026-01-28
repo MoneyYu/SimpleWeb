@@ -199,15 +199,22 @@ jobs:
       - name: Create Image Template
         run: |
           # Delete existing template if exists
-          az image builder show \
+          if az image builder show \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --name ${{ env.IMAGE_TEMPLATE_NAME }} &>/dev/null && \
-          az image builder delete \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --name ${{ env.IMAGE_TEMPLATE_NAME }} \
-            --yes || true
+            --name ${{ env.IMAGE_TEMPLATE_NAME }} &>/dev/null; then
+            echo "Deleting existing template..."
+            az image builder delete \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --name ${{ env.IMAGE_TEMPLATE_NAME }} \
+              --no-wait
+            
+            # Wait for deletion to complete
+            echo "Waiting for template deletion..."
+            sleep 60
+          fi
           
           # Create new template
+          echo "Creating new image template..."
           az image builder create \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.IMAGE_TEMPLATE_NAME }} \
