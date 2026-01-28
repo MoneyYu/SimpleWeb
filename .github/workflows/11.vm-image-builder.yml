@@ -196,29 +196,21 @@ jobs:
           
           cat ${{ env.AIB_TEMPLATE_PATH }}
 
-      - name: Create Image Template
+      - name: Create or Update Image Template
         run: |
-          # Delete existing template if exists
+          # Check if template exists
           if az image builder show \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.IMAGE_TEMPLATE_NAME }} &>/dev/null; then
-            echo "Deleting existing template..."
-            az image builder delete \
+            echo "Image template already exists, will reuse it to create new version"
+          else
+            echo "Creating new image template..."
+            az image builder create \
               --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --name ${{ env.IMAGE_TEMPLATE_NAME }}
-            
-            # Wait a bit for deletion to complete
-            echo "Waiting for deletion to complete..."
-            sleep 10
+              --name ${{ env.IMAGE_TEMPLATE_NAME }} \
+              --image-template ${{ env.AIB_TEMPLATE_PATH }} \
+              --tags buildDate="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           fi
-          
-          # Create new template
-          echo "Creating new image template..."
-          az image builder create \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --name ${{ env.IMAGE_TEMPLATE_NAME }} \
-            --image-template ${{ env.AIB_TEMPLATE_PATH }} \
-            --tags version="${{ steps.version.outputs.VERSION }}" buildDate="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
       - name: Build Image
         run: |
