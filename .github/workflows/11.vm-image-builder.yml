@@ -205,12 +205,11 @@ jobs:
             echo "Deleting existing template..."
             az image builder delete \
               --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --name ${{ env.IMAGE_TEMPLATE_NAME }} \
-              --no-wait
+              --name ${{ env.IMAGE_TEMPLATE_NAME }}
             
-            # Wait for deletion to complete
-            echo "Waiting for template deletion..."
-            sleep 60
+            # Wait a bit for deletion to complete
+            echo "Waiting for deletion to complete..."
+            sleep 10
           fi
           
           # Create new template
