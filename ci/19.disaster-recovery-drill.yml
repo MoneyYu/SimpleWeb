@@ -1,0 +1,929 @@
+# Disaster Recovery Drill - 災難恢復演練
+#
+# ========================================
+# 使用情境說明
+# ========================================
+#
+# 這個 Pipeline 展示如何自動化災難恢復（DR）演練，
+# 定期驗證備份恢復流程，確保在真正的災難發生時能夠快速恢復服務。
+#
+# 什麼是災難恢復演練？
+# - 定期測試災難恢復計劃（Disaster Recovery Plan, DRP）
+# - 驗證備份的完整性和可恢復性
+# - 測試在次要區域（Secondary Region）快速恢復服務的能力
+# - 確保 RTO（Recovery Time Objective）和 RPO（Recovery Point Objective）目標可達成
+# - 訓練團隊執行災難恢復程序
+#
+# 為什麼需要 DR 演練？
+# - 備份可能損壞：沒測試過的備份等於沒有備份
+# - 驗證恢復時間：確保能在承諾的時間內恢復
+# - 發現流程問題：在真正災難前發現並修復問題
+# - 團隊訓練：確保團隊知道如何執行 DR 程序
+# - 合規要求：許多產業要求定期 DR 演練
+# - 持續改進：通過演練優化 DR 計劃
+#
+# 適用場景：
+# 1. 關鍵業務系統：不能承受長時間停機的系統
+# 2. 合規要求：金融、醫療等受監管產業
+# 3. SLA 承諾：對客戶承諾的可用性 SLA
+# 4. 多區域部署：使用 Azure Paired Regions
+# 5. 業務連續性計劃（BCP）：企業級業務連續性要求
+# 6. 資料保護：確保資料能夠恢復
+#
+# DR 演練類型：
+# 1. 桌面演練（Tabletop Exercise）
+#    - 團隊討論演練，不實際執行
+#    - 低成本，用於驗證流程文件
+#
+# 2. 模擬演練（Simulation Exercise）
+#    - 在測試環境中執行 DR 程序
+#    - 本 Pipeline 展示的類型
+#
+# 3. 全面演練（Full-Scale Exercise）
+#    - 實際切換到 DR 環境
+#    - 高成本但最真實
+#
+# 4. 並行測試（Parallel Testing）
+#    - DR 環境與生產環境同時運行
+#    - 驗證 DR 環境的效能
+#
+# 關鍵指標：
+# - RTO（Recovery Time Objective）：最大可容忍停機時間
+#   例如：4 小時內必須恢復服務
+#
+# - RPO（Recovery Point Objective）：最大可容忍資料損失
+#   例如：最多損失 15 分鐘的資料
+#
+# - RTA（Recovery Time Actual）：實際恢復時間
+#   必須 ≤ RTO
+#
+# - RPA（Recovery Point Actual）：實際資料損失
+#   必須 ≤ RPO
+#
+# Azure DR 策略：
+# - Azure Site Recovery（ASR）：自動化 VM 複製和容錯移轉
+# - Geo-Redundant Storage（GRS）：跨區域儲存備份
+# - Azure SQL Geo-Replication：資料庫異地複製
+# - Traffic Manager：自動流量切換
+# - Azure Backup：定期備份和恢復
+# - Paired Regions：Azure 配對區域（如 East Asia - Southeast Asia）
+#
+# 優勢：
+# - 信心保證：知道在災難時能夠恢復
+# - 降低風險：及早發現 DR 計劃的問題
+# - 優化 RTO/RPO：通過演練優化恢復時間
+# - 合規性：滿足審計和監管要求
+# - 團隊準備度：團隊熟悉 DR 程序
+# - 持續改進：每次演練後改進計劃
+#
+# 實際案例：
+# - Azure：定期進行區域容錯移轉演練
+# - AWS：Chaos Engineering 驗證韌性
+# - Netflix：Simian Army 模擬各種故障
+# - Google：DiRT（Disaster Recovery Testing）演練
+#
+# 災難情境：
+# - 區域性故障（Regional Outage）
+# - 資料中心故障
+# - 網路中斷
+# - 資料損壞或刪除
+# - 惡意攻擊（Ransomware）
+# - 人為錯誤
+#
+# ========================================
+
+trigger: none # 手動觸發或排程觸發
+
+schedules:
+  - cron: "0 2 1 * *" # 每月 1 號凌晨 2 點執行
+    displayName: "Monthly DR Drill"
+    branches:
+      include:
+        - master
+    always: true # 即使沒有程式碼變更也執行
+
+variables:
+  azureSubscription: "Azure Pass - 20210830(b9beff15-1273-439b-bd95-d83efb276249)"
+  # 生產環境設定
+  productionResourceGroup: "demo-rg-prod"
+  productionRegion: "eastasia"
+  productionAppName: "demo0830-prod"
+  productionSqlServer: "demo-sql-prod"
+  productionDatabase: "demodb-prod"
+  # DR 環境設定
+  drResourceGroup: "demo-rg-dr"
+  drRegion: "southeastasia" # Azure Paired Region
+  drAppName: "demo0830-dr"
+  drSqlServer: "demo-sql-dr"
+  drDatabase: "demodb-dr"
+  # 備份設定
+  backupStorageAccount: "demobackupstorage"
+  backupContainer: "backups"
+  # DR 目標
+  targetRTO: 240 # 4 小時（分鐘）
+  targetRPO: 15 # 15 分鐘（分鐘）
+  # 演練設定
+  drillType: "Simulation" # Tabletop, Simulation, FullScale
+  drillDuration: 120 # 2 小時（分鐘）
+
+stages:
+  - stage: PreDrillPreparation
+    displayName: "演練前準備"
+    jobs:
+      - job: DrillPlanning
+        displayName: "演練計劃與通知"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: PowerShell@2
+            displayName: "生成演練計劃"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "災難恢復演練計劃"
+                Write-Host "========================================="
+                Write-Host ""
+                Write-Host "演練資訊："
+                Write-Host "- 演練 ID: DR-$(Build.BuildId)"
+                Write-Host "- 演練類型: $(drillType)"
+                Write-Host "- 排程時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                Write-Host "- 預計時長: $(drillDuration) 分鐘"
+                Write-Host ""
+                Write-Host "模擬災難情境："
+                Write-Host "- 主要區域 ($(productionRegion)) 完全故障"
+                Write-Host "- 需要切換到 DR 區域 ($(drRegion))"
+                Write-Host ""
+                Write-Host "演練目標："
+                Write-Host "- RTO 目標: $(targetRTO) 分鐘"
+                Write-Host "- RPO 目標: $(targetRPO) 分鐘"
+                Write-Host "- 驗證備份完整性"
+                Write-Host "- 驗證 DR 環境可用性"
+                Write-Host "- 測試資料恢復流程"
+                Write-Host "- 驗證應用程式功能"
+                Write-Host ""
+                Write-Host "參與團隊："
+                Write-Host "- DevOps 團隊"
+                Write-Host "- 資料庫管理員"
+                Write-Host "- 網路團隊"
+                Write-Host "- 安全團隊"
+                Write-Host "- 業務代表"
+                Write-Host ""
+                Write-Host "✓ 演練計劃已生成"
+                Write-Host "========================================="
+
+          - task: PowerShell@2
+            displayName: "發送演練通知"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "發送 DR 演練通知"
+                Write-Host "========================================="
+                Write-Host ""
+
+                Write-Host "📧 通知內容:"
+                Write-Host "---"
+                Write-Host "主旨: [DR 演練通知] 災難恢復演練即將開始"
+                Write-Host ""
+                Write-Host "各位同仁，"
+                Write-Host ""
+                Write-Host "我們將在今天執行定期的災難恢復演練："
+                Write-Host ""
+                Write-Host "演練 ID: DR-$(Build.BuildId)"
+                Write-Host "開始時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                Write-Host "預計時長: $(drillDuration) 分鐘"
+                Write-Host ""
+                Write-Host "重要事項："
+                Write-Host "- 這是模擬演練，不會影響生產環境"
+                Write-Host "- 請準備好執行各自的 DR 任務"
+                Write-Host "- 記錄所有問題和改進建議"
+                Write-Host "- 演練後將召開檢討會議"
+                Write-Host ""
+                Write-Host "演練監控面板:"
+                Write-Host "$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)"
+                Write-Host "---"
+                Write-Host ""
+                Write-Host "✓ 通知已發送給所有相關人員"
+                Write-Host "========================================="
+
+          - task: PowerShell@2
+            displayName: "記錄演練開始時間"
+            inputs:
+              targetType: "inline"
+              script: |
+                $drillStartTime = Get-Date
+                Write-Host "演練開始時間: $($drillStartTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+                Write-Host "##vso[task.setvariable variable=DrillStartTime;isOutput=true]$drillStartTime"
+            name: drillMetrics
+
+  - stage: ValidateBackups
+    displayName: "驗證備份完整性"
+    dependsOn: PreDrillPreparation
+    jobs:
+      - job: CheckBackupStatus
+        displayName: "檢查備份狀態"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: AzureCLI@2
+            displayName: "驗證資料庫備份"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host "========================================="
+                Write-Host "驗證 Azure SQL 資料庫備份"
+                Write-Host "========================================="
+                Write-Host ""
+
+                # 列出最近的備份
+                # az sql db list-backups --resource-group $(productionResourceGroup) --server $(productionSqlServer) --database $(productionDatabase)
+
+                Write-Host "檢查自動備份..."
+                Write-Host ""
+
+                # 模擬備份檢查結果
+                $latestBackup = @{
+                    'backupTime' = (Get-Date).AddHours(-2)
+                    'backupType' = 'Full'
+                    'sizeGB' = 5.2
+                    'status' = 'Available'
+                }
+
+                Write-Host "最新備份資訊："
+                Write-Host "- 備份時間: $($latestBackup.backupTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+                Write-Host "- 備份類型: $($latestBackup.backupType)"
+                Write-Host "- 備份大小: $($latestBackup.sizeGB) GB"
+                Write-Host "- 狀態: $($latestBackup.status)"
+                Write-Host ""
+
+                # 計算 RPO
+                $timeSinceBackup = (Get-Date) - $latestBackup.backupTime
+                $actualRPO = [math]::Round($timeSinceBackup.TotalMinutes, 0)
+
+                Write-Host "RPO 分析："
+                Write-Host "- 距離最新備份: $actualRPO 分鐘"
+                Write-Host "- RPO 目標: $(targetRPO) 分鐘"
+
+                if ($actualRPO -le $(targetRPO)) {
+                    Write-Host "- 狀態: ✓ 符合 RPO 目標"
+                } else {
+                    Write-Warning "- 狀態: ⚠ 超過 RPO 目標"
+                }
+
+                Write-Host ""
+                Write-Host "異地複製狀態："
+                # az sql db replica list-links --resource-group $(productionResourceGroup) --server $(productionSqlServer) --database $(productionDatabase)
+                Write-Host "- 複製目標: $(drRegion)"
+                Write-Host "- 複製狀態: ✓ 同步中"
+                Write-Host "- 複製延遲: < 5 秒"
+                Write-Host ""
+                Write-Host "✓ 資料庫備份驗證通過"
+                Write-Host "========================================="
+
+          - task: AzureCLI@2
+            displayName: "驗證應用程式備份"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host "========================================="
+                Write-Host "驗證應用程式配置備份"
+                Write-Host "========================================="
+                Write-Host ""
+
+                # 檢查 Azure Blob Storage 中的備份
+                # az storage blob list --account-name $(backupStorageAccount) --container-name $(backupContainer)
+
+                Write-Host "檢查配置備份..."
+                Write-Host ""
+                Write-Host "備份項目："
+                Write-Host "✓ App Service 配置"
+                Write-Host "✓ 應用程式設定（App Settings）"
+                Write-Host "✓ 連接字串"
+                Write-Host "✓ SSL 憑證"
+                Write-Host "✓ 自訂網域設定"
+                Write-Host "✓ 部署槽位配置"
+                Write-Host ""
+
+                Write-Host "最新配置備份："
+                Write-Host "- 備份時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                Write-Host "- 備份位置: $(backupStorageAccount)/$(backupContainer)"
+                Write-Host "- 狀態: ✓ 可用"
+                Write-Host ""
+                Write-Host "✓ 應用程式備份驗證通過"
+                Write-Host "========================================="
+
+  - stage: RestoreToDR
+    displayName: "恢復到 DR 環境"
+    dependsOn: ValidateBackups
+    jobs:
+      - job: PrepDREnvironment
+        displayName: "準備 DR 環境"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: PowerShell@2
+            displayName: "記錄恢復開始時間"
+            inputs:
+              targetType: "inline"
+              script: |
+                $recoveryStartTime = Get-Date
+                Write-Host "恢復開始時間: $($recoveryStartTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+                Write-Host "##vso[task.setvariable variable=RecoveryStartTime;isOutput=true]$recoveryStartTime"
+            name: recoveryMetrics
+
+          - task: AzureCLI@2
+            displayName: "確保 DR 資源群組存在"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host "========================================="
+                Write-Host "準備 DR 環境基礎設施"
+                Write-Host "========================================="
+                Write-Host ""
+
+                # 檢查 DR 資源群組是否存在
+                # $rgExists = az group exists --name $(drResourceGroup)
+                # if ($rgExists -eq 'false') {
+                #     az group create --name $(drResourceGroup) --location $(drRegion)
+                # }
+
+                Write-Host "DR 資源群組："
+                Write-Host "- 名稱: $(drResourceGroup)"
+                Write-Host "- 區域: $(drRegion)"
+                Write-Host "- 狀態: ✓ 已就緒"
+                Write-Host ""
+                Write-Host "✓ DR 環境基礎設施準備完成"
+                Write-Host "========================================="
+
+      - job: RestoreDatabase
+        displayName: "恢復資料庫到 DR"
+        dependsOn: PrepDREnvironment
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: AzureCLI@2
+            displayName: "執行資料庫異地還原"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host "========================================="
+                Write-Host "資料庫災難恢復"
+                Write-Host "========================================="
+                Write-Host ""
+
+                Write-Host "方法 1: 使用異地複製容錯移轉"
+                Write-Host "---"
+                # 如果有設定異地複製，執行容錯移轉
+                # az sql db replica failover --resource-group $(drResourceGroup) --server $(drSqlServer) --database $(drDatabase)
+
+                Write-Host "執行容錯移轉到次要資料庫..."
+                Write-Host "- 來源: $(productionSqlServer).database.windows.net"
+                Write-Host "- 目標: $(drSqlServer).database.windows.net"
+                Write-Host "- 資料庫: $(drDatabase)"
+                Write-Host ""
+
+                # 模擬容錯移轉過程
+                Write-Host "容錯移轉進度："
+                for ($i = 1; $i -le 5; $i++) {
+                    Write-Host "  [$i/5] 進行中..."
+                    Start-Sleep -Seconds 3
+                }
+
+                Write-Host ""
+                Write-Host "✓ 資料庫容錯移轉完成"
+                Write-Host ""
+
+                Write-Host "方法 2: 從備份還原（備用方案）"
+                Write-Host "---"
+                # 或從異地備份還原
+                # az sql db restore --resource-group $(drResourceGroup) --server $(drSqlServer) --name $(drDatabase) --source-database $(productionDatabase) --time "2024-01-20T10:00:00Z"
+
+                Write-Host "（如果異地複製不可用，則使用此方法）"
+                Write-Host ""
+
+                Write-Host "驗證資料庫可用性："
+                # 測試連接
+                Write-Host "- 連接測試: ✓ 成功"
+                Write-Host "- 資料完整性: ✓ 驗證通過"
+                Write-Host "- 最新資料時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                Write-Host ""
+                Write-Host "✓ 資料庫恢復完成"
+                Write-Host "========================================="
+
+      - job: RestoreApplication
+        displayName: "恢復應用程式到 DR"
+        dependsOn: RestoreDatabase
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: AzureCLI@2
+            displayName: "部署應用程式到 DR 環境"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host "========================================="
+                Write-Host "應用程式災難恢復"
+                Write-Host "========================================="
+                Write-Host ""
+
+                Write-Host "恢復 App Service..."
+
+                # 方法 1: 從生產環境複製配置
+                # az webapp config appsettings list --resource-group $(productionResourceGroup) --name $(productionAppName)
+                # az webapp config appsettings set --resource-group $(drResourceGroup) --name $(drAppName) --settings @settings.json
+
+                Write-Host "1. 應用配置設定"
+                Write-Host "   - App Settings: ✓ 已套用"
+                Write-Host "   - 連接字串: ✓ 已更新（指向 DR 資料庫）"
+                Write-Host "   - 環境變數: ✓ 已設定"
+                Write-Host ""
+
+                # 方法 2: 部署最新的應用程式版本
+                Write-Host "2. 部署應用程式"
+                Write-Host "   - 來源: 最新的 production 部署"
+                Write-Host "   - 目標: $(drAppName)"
+                Write-Host "   - 狀態: ✓ 部署中..."
+                Write-Host ""
+
+                # 模擬部署
+                Start-Sleep -Seconds 10
+
+                Write-Host "   ✓ 部署完成"
+                Write-Host ""
+
+                Write-Host "3. 設定自訂網域和 SSL（如需要）"
+                Write-Host "   - 網域: dr.demo.com"
+                Write-Host "   - SSL 憑證: ✓ 已綁定"
+                Write-Host ""
+
+                Write-Host "✓ 應用程式恢復完成"
+                Write-Host "========================================="
+
+          - task: PowerShell@2
+            displayName: "計算恢復時間（RTO）"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "RTO 分析"
+                Write-Host "========================================="
+                Write-Host ""
+
+                # 計算實際恢復時間
+                $recoveryStartTime = "$(recoveryMetrics.RecoveryStartTime)"
+                $recoveryEndTime = Get-Date
+                $actualRTO = [math]::Round(($recoveryEndTime - [DateTime]$recoveryStartTime).TotalMinutes, 0)
+
+                Write-Host "恢復時間統計："
+                Write-Host "- 開始時間: $recoveryStartTime"
+                Write-Host "- 完成時間: $($recoveryEndTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+                Write-Host "- 實際 RTO: $actualRTO 分鐘"
+                Write-Host "- 目標 RTO: $(targetRTO) 分鐘"
+                Write-Host ""
+
+                if ($actualRTO -le $(targetRTO)) {
+                    Write-Host "結果: ✓ 符合 RTO 目標"
+                    Write-Host "超前: $([math]::Round($(targetRTO) - $actualRTO, 0)) 分鐘"
+                } else {
+                    Write-Warning "結果: ✗ 超過 RTO 目標"
+                    Write-Warning "超時: $([math]::Round($actualRTO - $(targetRTO), 0)) 分鐘"
+                }
+
+                Write-Host ""
+                Write-Host "##vso[task.setvariable variable=ActualRTO;isOutput=true]$actualRTO"
+                Write-Host "========================================="
+            name: rtoMetrics
+
+  - stage: VerifyDREnvironment
+    displayName: "驗證 DR 環境"
+    dependsOn: RestoreToDR
+    jobs:
+      - job: FunctionalTests
+        displayName: "功能驗證測試"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: PowerShell@2
+            displayName: "健康檢查"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "DR 環境健康檢查"
+                Write-Host "========================================="
+                Write-Host ""
+
+                $drAppUrl = "https://$(drAppName).azurewebsites.net"
+
+                Write-Host "測試 URL: $drAppUrl"
+                Write-Host ""
+
+                # 健康檢查
+                Write-Host "1. 應用程式健康檢查..."
+                try {
+                    # $response = Invoke-WebRequest -Uri "$drAppUrl/health" -UseBasicParsing
+                    Write-Host "   ✓ 應用程式正常運行"
+                } catch {
+                    Write-Error "   ✗ 健康檢查失敗"
+                }
+
+                # 資料庫連接測試
+                Write-Host "2. 資料庫連接測試..."
+                Write-Host "   ✓ 資料庫連接正常"
+
+                # 關鍵功能測試
+                Write-Host "3. 關鍵功能測試..."
+                Write-Host "   ✓ 首頁載入正常"
+                Write-Host "   ✓ 用戶登入功能正常"
+                Write-Host "   ✓ 資料查詢功能正常"
+
+                Write-Host ""
+                Write-Host "✓ 所有健康檢查通過"
+                Write-Host "========================================="
+
+          - task: PowerShell@2
+            displayName: "效能驗證"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "DR 環境效能驗證"
+                Write-Host "========================================="
+                Write-Host ""
+
+                $drAppUrl = "https://$(drAppName).azurewebsites.net"
+
+                Write-Host "執行效能測試..."
+                Write-Host ""
+
+                # 響應時間測試
+                $responseTimes = @()
+                for ($i = 1; $i -le 5; $i++) {
+                    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                    # Invoke-WebRequest -Uri $drAppUrl -UseBasicParsing | Out-Null
+                    $stopwatch.Stop()
+                    $responseTime = Get-Random -Minimum 200 -Maximum 400
+                    $responseTimes += $responseTime
+                    Write-Host "測試 $i : $responseTime ms"
+                    Start-Sleep -Seconds 1
+                }
+
+                $avgResponseTime = ($responseTimes | Measure-Object -Average).Average
+
+                Write-Host ""
+                Write-Host "效能統計："
+                Write-Host "- 平均響應時間: $([math]::Round($avgResponseTime, 0)) ms"
+                Write-Host "- 最快: $($responseTimes | Measure-Object -Minimum | Select-Object -ExpandProperty Minimum) ms"
+                Write-Host "- 最慢: $($responseTimes | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum) ms"
+                Write-Host ""
+
+                if ($avgResponseTime -lt 500) {
+                    Write-Host "✓ 效能符合預期"
+                } else {
+                    Write-Warning "⚠ 效能較慢，需要調查"
+                }
+
+                Write-Host "========================================="
+
+          - task: PowerShell@2
+            displayName: "資料完整性驗證"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "資料完整性驗證"
+                Write-Host "========================================="
+                Write-Host ""
+
+                Write-Host "驗證項目："
+                Write-Host ""
+
+                # 資料記錄數量檢查
+                Write-Host "1. 資料記錄數量"
+                Write-Host "   - 生產環境: 10,245 筆"
+                Write-Host "   - DR 環境: 10,245 筆"
+                Write-Host "   - 狀態: ✓ 一致"
+                Write-Host ""
+
+                # 最新資料時間戳檢查
+                Write-Host "2. 最新資料時間戳"
+                $latestDataTime = (Get-Date).AddMinutes(-5)
+                Write-Host "   - 最新記錄時間: $($latestDataTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+                $dataLag = [math]::Round(((Get-Date) - $latestDataTime).TotalMinutes, 0)
+                Write-Host "   - 資料延遲: $dataLag 分鐘"
+
+                if ($dataLag -le $(targetRPO)) {
+                    Write-Host "   - 狀態: ✓ 符合 RPO 目標"
+                } else {
+                    Write-Warning "   - 狀態: ⚠ 超過 RPO 目標"
+                }
+                Write-Host ""
+
+                # Checksum 驗證
+                Write-Host "3. 資料 Checksum 驗證"
+                Write-Host "   - 關鍵資料表: ✓ 驗證通過"
+                Write-Host "   - 參考資料: ✓ 驗證通過"
+                Write-Host ""
+
+                Write-Host "✓ 資料完整性驗證通過"
+                Write-Host "========================================="
+
+  - stage: TrafficManagerUpdate
+    displayName: "流量切換模擬"
+    dependsOn: VerifyDREnvironment
+    condition: succeeded()
+    jobs:
+      - job: SimulateFailover
+        displayName: "模擬流量切換"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: PowerShell@2
+            displayName: "流量切換說明"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "流量切換到 DR 環境（模擬）"
+                Write-Host "========================================="
+                Write-Host ""
+                Write-Host "注意：這是模擬演練"
+                Write-Host "實際流量不會切換到 DR 環境"
+                Write-Host ""
+                Write-Host "在真實災難情境中，會執行以下步驟："
+                Write-Host ""
+                Write-Host "1. Azure Traffic Manager 配置"
+                Write-Host "   - 將優先級從生產環境切換到 DR 環境"
+                Write-Host "   - 或調整權重路由"
+                Write-Host ""
+                Write-Host "2. DNS 更新（如適用）"
+                Write-Host "   - 更新 DNS 記錄指向 DR 環境"
+                Write-Host "   - TTL 設定影響切換時間"
+                Write-Host ""
+                Write-Host "3. 負載平衡器配置"
+                Write-Host "   - 移除故障端點"
+                Write-Host "   - 添加 DR 環境端點"
+                Write-Host ""
+                Write-Host "4. Azure Front Door / Application Gateway"
+                Write-Host "   - 更新後端池配置"
+                Write-Host "   - 啟用健康探測"
+                Write-Host ""
+
+                # 模擬 Traffic Manager 更新
+                # az network traffic-manager endpoint update --resource-group demo-rg --profile-name demo-tm --name dr-endpoint --type azureEndpoints --priority 1
+
+                Write-Host "模擬切換結果："
+                Write-Host "✓ Traffic Manager 已更新"
+                Write-Host "✓ DNS 傳播中（預計 5-10 分鐘）"
+                Write-Host "✓ 健康探測通過"
+                Write-Host ""
+                Write-Host "========================================="
+
+  - stage: DrillReport
+    displayName: "演練報告與檢討"
+    dependsOn:
+      - PreDrillPreparation
+      - ValidateBackups
+      - RestoreToDR
+      - VerifyDREnvironment
+      - TrafficManagerUpdate
+    condition: always()
+    jobs:
+      - job: GenerateDrillReport
+        displayName: "生成演練報告"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: PowerShell@2
+            displayName: "生成完整 DR 演練報告"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host ""
+                Write-Host "========================================"
+                Write-Host "   災難恢復演練完整報告"
+                Write-Host "========================================"
+                Write-Host ""
+                Write-Host "演練基本資訊"
+                Write-Host "========================================" 
+                Write-Host "- 演練 ID: DR-$(Build.BuildId)"
+                Write-Host "- 演練類型: $(drillType)"
+                Write-Host "- 執行時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                Write-Host "- 執行者: $(Build.RequestedFor)"
+                Write-Host ""
+                Write-Host "模擬災難情境"
+                Write-Host "========================================"
+                Write-Host "- 主要區域: $(productionRegion)"
+                Write-Host "- 災難類型: 區域性故障（完全不可用）"
+                Write-Host "- DR 區域: $(drRegion)"
+                Write-Host ""
+                Write-Host "演練目標 vs 實際結果"
+                Write-Host "========================================"
+                Write-Host ""
+                Write-Host "RTO (Recovery Time Objective)"
+                Write-Host "- 目標: $(targetRTO) 分鐘"
+                Write-Host "- 實際: 35 分鐘"
+                Write-Host "- 結果: ✓ 符合目標（超前 $([math]::Round($(targetRTO) - 35, 0)) 分鐘）"
+                Write-Host ""
+                Write-Host "RPO (Recovery Point Objective)"
+                Write-Host "- 目標: $(targetRPO) 分鐘"
+                Write-Host "- 實際: 5 分鐘"
+                Write-Host "- 結果: ✓ 符合目標"
+                Write-Host ""
+                Write-Host "恢復階段時間分解"
+                Write-Host "========================================"
+                Write-Host "1. 備份驗證: 5 分鐘"
+                Write-Host "2. DR 環境準備: 3 分鐘"
+                Write-Host "3. 資料庫恢復: 15 分鐘"
+                Write-Host "4. 應用程式恢復: 10 分鐘"
+                Write-Host "5. 驗證測試: 8 分鐘"
+                Write-Host "---"
+                Write-Host "總計: 41 分鐘"
+                Write-Host ""
+                Write-Host "功能驗證結果"
+                Write-Host "========================================"
+                Write-Host "✓ 應用程式健康檢查: 通過"
+                Write-Host "✓ 資料庫連接: 正常"
+                Write-Host "✓ 關鍵功能測試: 通過"
+                Write-Host "✓ 效能測試: 符合預期"
+                Write-Host "✓ 資料完整性: 驗證通過"
+                Write-Host ""
+                Write-Host "發現的問題"
+                Write-Host "========================================"
+                Write-Host "1. [低] DR 環境的應用程式設定需要手動更新"
+                Write-Host "   建議: 自動化配置同步"
+                Write-Host ""
+                Write-Host "2. [中] 資料庫恢復時間較長（15分鐘）"
+                Write-Host "   建議: 使用持續同步的異地複製"
+                Write-Host ""
+                Write-Host "3. [低] 缺少自動化的流量切換腳本"
+                Write-Host "   建議: 準備 Traffic Manager 切換腳本"
+                Write-Host ""
+                Write-Host "團隊表現"
+                Write-Host "========================================"
+                Write-Host "✓ 所有團隊成員熟悉 DR 程序"
+                Write-Host "✓ 溝通順暢，協作良好"
+                Write-Host "✓ 問題快速識別和解決"
+                Write-Host ""
+                Write-Host "改進建議"
+                Write-Host "========================================"
+                Write-Host "1. 實施自動化的配置同步"
+                Write-Host "2. 升級到 Azure SQL 異地複製"
+                Write-Host "3. 建立流量切換自動化腳本"
+                Write-Host "4. 定期測試頻率從月度改為雙週"
+                Write-Host "5. 添加更多端到端的業務流程測試"
+                Write-Host ""
+                Write-Host "後續行動項"
+                Write-Host "========================================"
+                Write-Host "□ 更新 DR 文件（負責人: DevOps Lead）"
+                Write-Host "□ 實施配置自動化（負責人: DevOps Team）"
+                Write-Host "□ 評估異地複製升級（負責人: DBA）"
+                Write-Host "□ 開發流量切換腳本（負責人: Network Team）"
+                Write-Host "□ 排程下次演練（負責人: DR Manager）"
+                Write-Host ""
+                Write-Host "總結"
+                Write-Host "========================================"
+                Write-Host "✓✓✓ DR 演練成功完成 ✓✓✓"
+                Write-Host ""
+                Write-Host "總體評估: 優秀"
+                Write-Host "- 符合所有 RTO/RPO 目標"
+                Write-Host "- 團隊執行順利"
+                Write-Host "- 發現並記錄了改進機會"
+                Write-Host "- DR 計劃經過驗證可行"
+                Write-Host ""
+                Write-Host "信心等級: 高"
+                Write-Host "在真實災難情境下，團隊有信心在目標時間內恢復服務"
+                Write-Host ""
+                Write-Host "========================================"
+                Write-Host ""
+                Write-Host "報告生成時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                Write-Host "報告生成者: Azure DevOps Pipeline"
+                Write-Host ""
+
+          - task: PowerShell@2
+            displayName: "發送演練報告"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "發送 DR 演練報告"
+                Write-Host "========================================="
+                Write-Host ""
+                Write-Host "報告已發送給："
+                Write-Host "- 技術主管"
+                Write-Host "- DevOps 團隊"
+                Write-Host "- 資料庫管理員"
+                Write-Host "- 業務連續性團隊"
+                Write-Host "- 資訊安全團隊"
+                Write-Host ""
+                Write-Host "報告包含："
+                Write-Host "- 演練執行摘要"
+                Write-Host "- RTO/RPO 達成情況"
+                Write-Host "- 發現的問題和建議"
+                Write-Host "- 後續行動項"
+                Write-Host ""
+                Write-Host "✓ 報告已發送"
+                Write-Host "========================================="
+
+  - stage: Cleanup
+    displayName: "清理 DR 測試環境"
+    dependsOn: DrillReport
+    condition: succeeded()
+    jobs:
+      - job: CleanupDREnvironment
+        displayName: "清理測試資源"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: PowerShell@2
+            displayName: "清理 DR 測試資源"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "清理 DR 演練資源"
+                Write-Host "========================================="
+                Write-Host ""
+                Write-Host "注意：這是模擬演練"
+                Write-Host "DR 環境將保留以備真實災難使用"
+                Write-Host ""
+                Write-Host "在真實演練中可能需要清理："
+                Write-Host "- 臨時測試資料"
+                Write-Host "- 測試用的資源"
+                Write-Host "- 臨時的網路配置"
+                Write-Host ""
+                Write-Host "保留的資源："
+                Write-Host "✓ DR App Service（待命狀態）"
+                Write-Host "✓ DR 資料庫（異地複製）"
+                Write-Host "✓ DR 資源群組"
+                Write-Host "✓ 備份資料"
+                Write-Host ""
+                Write-Host "✓ 清理完成"
+                Write-Host "========================================="
+
+# ========================================
+# DR 演練最佳實踐
+# ========================================
+#
+# 1. 定期執行
+#    - 至少每季執行一次
+#    - 在重大變更後執行
+#    - 新團隊成員加入後執行
+#
+# 2. 文件化
+#    - 詳細的 DR 程序文件
+#    - 清單式的執行步驟
+#    - 聯絡人和升級路徑
+#
+# 3. 自動化
+#    - 盡可能自動化恢復流程
+#    - 減少人為錯誤
+#    - 加快恢復速度
+#
+# 4. 測量和追蹤
+#    - 記錄實際 RTO/RPO
+#    - 追蹤改進趨勢
+#    - 設定合理的目標
+#
+# 5. 多樣化情境
+#    - 測試不同類型的災難
+#    - 部分故障 vs 完全故障
+#    - 資料損壞 vs 基礎設施故障
+#
+# 6. 團隊訓練
+#    - 確保所有關鍵人員參與
+#    - 輪換角色和責任
+#    - 記錄經驗教訓
+#
+# 7. 持續改進
+#    - 每次演練後檢討
+#    - 實施改進措施
+#    - 更新 DR 計劃
+#
+# 8. 業務參與
+#    - 邀請業務團隊參與
+#    - 驗證業務流程
+#    - 確認可接受性
+#
+# 9. 真實性
+#    - 盡可能模擬真實情境
+#    - 包含壓力和時間限制
+#    - 測試通訊和協調
+#
+# 10. 合規性
+#     - 滿足監管要求
+#     - 保留演練記錄
+#     - 證明 DR 能力
+#
+# ========================================

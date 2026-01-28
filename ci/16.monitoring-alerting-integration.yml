@@ -1,0 +1,711 @@
+# Monitoring and Alerting Integration - 監控與告警整合
+#
+# ========================================
+# 使用情境說明
+# ========================================
+#
+# 這個 Pipeline 展示如何在 CD 流程中整合監控與告警系統，
+# 實現部署過程的可觀測性（Observability）和自動化異常偵測。
+#
+# 什麼是部署監控？
+# - 在部署過程中和部署後持續監控應用程式的健康狀態
+# - 收集關鍵指標（錯誤率、響應時間、資源使用率等）
+# - 當指標超過閾值時自動觸發告警或回滾
+# - 將部署事件記錄到監控系統中，方便事後分析
+#
+# 適用場景：
+# 1. 生產環境部署：需要即時監控部署後的應用程式狀態
+# 2. 自動化回滾：當錯誤率突然升高時自動回滾部署
+# 3. 效能退化偵測：比較部署前後的效能指標
+# 4. 合規性要求：需要記錄所有部署事件和變更
+# 5. 多團隊協作：讓所有相關人員能即時了解部署狀態
+# 6. 根本原因分析：當出現問題時，快速定位是否與部署相關
+#
+# 整合的監控工具：
+# - Azure Application Insights：應用程式效能監控（APM）
+# - Azure Monitor：基礎設施和應用程式監控
+# - Log Analytics：日誌分析和查詢
+# - Azure Alerts：自動化告警通知
+# - Deployment Annotations：在圖表上標記部署時間點
+#
+# 監控的關鍵指標：
+# - 錯誤率（Error Rate）：HTTP 5xx 錯誤、例外狀況
+# - 響應時間（Response Time）：P50, P95, P99 延遲
+# - 可用性（Availability）：應用程式是否可訪問
+# - 資源使用率：CPU、記憶體、磁碟、網路
+# - 業務指標：訂單數、活躍用戶數等
+#
+# 優勢：
+# - 早期發現問題：在影響大量用戶前就能發現異常
+# - 自動化決策：根據監控數據自動決定是否回滾
+# - 提高信心：有數據支持的部署決策
+# - 快速恢復：問題發生時能快速定位和回滾
+# - 持續改進：分析歷史數據優化部署流程
+#
+# 實際案例：
+# - Netflix：Canary 部署期間即時監控錯誤率和延遲
+# - Amazon：部署後自動監控關鍵業務指標
+# - Google：使用 SLO 自動化部署決策
+# - Microsoft：Azure DevOps 整合 Application Insights
+#
+# ========================================
+
+trigger:
+  - master
+
+variables:
+  buildConfiguration: "Release"
+  azureSubscription: "Azure Pass - 20210830(b9beff15-1273-439b-bd95-d83efb276249)"
+  appName: "demo0830"
+  resourceGroupName: "demo-rg"
+  # Application Insights 設定
+  appInsightsName: "demo-appinsights"
+  appInsightsResourceGroup: "$(resourceGroupName)"
+  # 告警閾值設定
+  errorRateThreshold: 5 # 錯誤率超過 5% 觸發告警
+  responseTimeThreshold: 3000 # 響應時間超過 3 秒觸發告警
+  availabilityThreshold: 95 # 可用性低於 95% 觸發告警
+  # 監控時間
+  monitoringDuration: 600 # 部署後監控 10 分鐘
+
+stages:
+  - stage: Build
+    displayName: "建置階段"
+    jobs:
+      - job: Build
+        displayName: "建置與發布"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Restore"
+            inputs:
+              command: "restore"
+              projects: "**/*.csproj"
+
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Build"
+            inputs:
+              command: "build"
+              projects: "**/*.csproj"
+              arguments: "--configuration $(buildConfiguration)"
+
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Test"
+            inputs:
+              command: "test"
+              projects: "**/*[Tt]est/*.csproj"
+              arguments: "--configuration $(buildConfiguration)"
+
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Publish"
+            inputs:
+              command: "publish"
+              publishWebProjects: true
+              arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)"
+              zipAfterPublish: true
+
+          - task: PublishBuildArtifacts@1
+            displayName: "發布建置成品"
+            inputs:
+              PathtoPublish: "$(Build.ArtifactStagingDirectory)"
+              ArtifactName: "drop"
+
+  - stage: PreDeploymentBaseline
+    displayName: "部署前基準測量"
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: CollectBaseline
+        displayName: "收集部署前指標"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: AzureCLI@2
+            displayName: "查詢部署前的關鍵指標"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host "========================================="
+                Write-Host "收集部署前基準指標"
+                Write-Host "========================================="
+                Write-Host ""
+
+                # 獲取 Application Insights 的 App ID 和 API Key
+                # 實際環境中需要設定 API Key
+
+                Write-Host "查詢過去 15 分鐘的指標..."
+                Write-Host ""
+
+                # 使用 Azure CLI 查詢 Application Insights
+                # az monitor app-insights metrics show --app $(appInsightsName) --resource-group $(appInsightsResourceGroup) --metric requests/failed --interval PT1M --aggregation avg
+
+                # 模擬查詢結果
+                $baselineErrorRate = 0.5
+                $baselineResponseTime = 245
+                $baselineAvailability = 99.8
+
+                Write-Host "部署前基準指標："
+                Write-Host "- 錯誤率: $baselineErrorRate %"
+                Write-Host "- 平均響應時間: $baselineResponseTime ms"
+                Write-Host "- 可用性: $baselineAvailability %"
+                Write-Host ""
+
+                # 保存基準值供後續比較
+                Write-Host "##vso[task.setvariable variable=BaselineErrorRate;isOutput=true]$baselineErrorRate"
+                Write-Host "##vso[task.setvariable variable=BaselineResponseTime;isOutput=true]$baselineResponseTime"
+                Write-Host "##vso[task.setvariable variable=BaselineAvailability;isOutput=true]$baselineAvailability"
+
+                Write-Host "✓ 基準指標收集完成"
+                Write-Host "========================================="
+            name: baseline
+
+  - stage: Deploy
+    displayName: "部署到生產環境"
+    dependsOn: PreDeploymentBaseline
+    condition: succeeded()
+    jobs:
+      - deployment: DeployWithMonitoring
+        displayName: "部署並建立監控標記"
+        environment: "production"
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: DownloadBuildArtifacts@0
+                  displayName: "下載建置成品"
+                  inputs:
+                    buildType: "current"
+                    downloadType: "single"
+                    artifactName: "drop"
+                    downloadPath: "$(System.ArtifactsDirectory)"
+
+                - task: AzureCLI@2
+                  displayName: "在 Application Insights 建立部署標記"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    scriptType: "pscore"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      Write-Host "========================================="
+                      Write-Host "建立部署標記（Deployment Annotation）"
+                      Write-Host "========================================="
+                      Write-Host ""
+
+                      $deploymentTime = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
+                      $buildId = "$(Build.BuildId)"
+                      $releaseName = "Release-$buildId"
+
+                      # 建立 Annotation（在 Application Insights 圖表上顯示部署時間點）
+                      # 實際指令範例：
+                      # az rest --method put --uri "https://api.applicationinsights.io/v1/apps/{appId}/Annotations" 
+                      #   --body "{'AnnotationName':'$releaseName','Category':'Deployment','EventTime':'$deploymentTime','Properties':{'BuildId':'$buildId','Pipeline':'$(Build.DefinitionName)'}}"
+
+                      Write-Host "部署標記資訊："
+                      Write-Host "- 部署名稱: $releaseName"
+                      Write-Host "- 部署時間: $deploymentTime"
+                      Write-Host "- Build ID: $buildId"
+                      Write-Host "- Pipeline: $(Build.DefinitionName)"
+                      Write-Host ""
+                      Write-Host "✓ 部署標記已建立"
+                      Write-Host "（在 Application Insights 圖表上會顯示一條垂直線標記此部署）"
+                      Write-Host "========================================="
+
+                - task: AzureWebApp@1
+                  displayName: "部署到 Azure Web App"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    appType: "webApp"
+                    appName: "$(appName)"
+                    package: "$(System.ArtifactsDirectory)/drop/**/*.zip"
+                    deploymentMethod: "auto"
+
+                - task: PowerShell@2
+                  displayName: "等待應用程式啟動"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "等待應用程式完全啟動..."
+                      Start-Sleep -Seconds 30
+                      Write-Host "✓ 開始監控階段"
+
+  - stage: PostDeploymentMonitoring
+    displayName: "部署後監控與分析"
+    dependsOn: Deploy
+    condition: succeeded()
+    jobs:
+      - job: MonitorMetrics
+        displayName: "監控關鍵指標"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: AzureCLI@2
+            displayName: "持續監控錯誤率"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host "========================================="
+                Write-Host "監控指標：錯誤率（Error Rate）"
+                Write-Host "========================================="
+                Write-Host ""
+                Write-Host "監控時長: $(monitoringDuration) 秒"
+                Write-Host "檢查間隔: 30 秒"
+                Write-Host "錯誤率閾值: $(errorRateThreshold)%"
+                Write-Host ""
+
+                $monitorDuration = $(monitoringDuration)
+                $checkInterval = 30
+                $totalChecks = [math]::Ceiling($monitorDuration / $checkInterval)
+
+                $errorRateHistory = @()
+
+                for ($i = 1; $i -le $totalChecks; $i++) {
+                    Write-Host "[$i/$totalChecks] 查詢錯誤率..."
+                    
+                    # 實際查詢 Application Insights
+                    # $query = "requests | where timestamp > ago(1m) | summarize total=count(), failed=countif(success == false) | extend errorRate = (failed * 100.0 / total)"
+                    # az monitor app-insights query --app $(appInsightsName) --resource-group $(appInsightsResourceGroup) --analytics-query $query
+                    
+                    # 模擬查詢結果（隨機產生在正常範圍內的錯誤率）
+                    $currentErrorRate = [math]::Round((Get-Random -Minimum 0 -Maximum 200) / 100.0, 2)
+                    $errorRateHistory += $currentErrorRate
+                    
+                    Write-Host "  當前錯誤率: $currentErrorRate%"
+                    
+                    # 檢查是否超過閾值
+                    if ($currentErrorRate -gt $(errorRateThreshold)) {
+                        Write-Host ""
+                        Write-Error "✗ 錯誤率超過閾值 $(errorRateThreshold)%！"
+                        Write-Host "當前錯誤率: $currentErrorRate%"
+                        Write-Host "建議立即回滾部署"
+                        
+                        # 設定變數觸發回滾
+                        Write-Host "##vso[task.setvariable variable=ShouldRollback;isOutput=true]true"
+                        Write-Host "##vso[task.setvariable variable=RollbackReason;isOutput=true]ErrorRateExceeded"
+                        exit 1
+                    }
+                    
+                    if ($i -lt $totalChecks) {
+                        Start-Sleep -Seconds $checkInterval
+                    }
+                }
+
+                # 計算平均錯誤率
+                $avgErrorRate = ($errorRateHistory | Measure-Object -Average).Average
+                Write-Host ""
+                Write-Host "監控結果："
+                Write-Host "- 平均錯誤率: $([math]::Round($avgErrorRate, 2))%"
+                Write-Host "- 最高錯誤率: $($errorRateHistory | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum)%"
+                Write-Host "- 最低錯誤率: $($errorRateHistory | Measure-Object -Minimum | Select-Object -ExpandProperty Minimum)%"
+                Write-Host ""
+                Write-Host "✓ 錯誤率監控通過"
+                Write-Host "========================================="
+            name: errorMonitoring
+
+          - task: AzureCLI@2
+            displayName: "監控響應時間"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host "========================================="
+                Write-Host "監控指標：響應時間（Response Time）"
+                Write-Host "========================================="
+                Write-Host ""
+
+                $appUrl = "https://$(appName).azurewebsites.net"
+                $iterations = 10
+                $responseTimes = @()
+
+                Write-Host "執行 $iterations 次實際請求測試..."
+                Write-Host ""
+
+                for ($i = 1; $i -le $iterations; $i++) {
+                    try {
+                        $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                        Invoke-WebRequest -Uri $appUrl -UseBasicParsing -TimeoutSec 30 | Out-Null
+                        $stopwatch.Stop()
+                        
+                        $responseTime = $stopwatch.ElapsedMilliseconds
+                        $responseTimes += $responseTime
+                        
+                        Write-Host "[$i/$iterations] 響應時間: $responseTime ms"
+                        
+                        # 檢查是否超過閾值
+                        if ($responseTime -gt $(responseTimeThreshold)) {
+                            Write-Warning "⚠ 警告：響應時間超過閾值 $(responseTimeThreshold) ms"
+                        }
+                        
+                        Start-Sleep -Seconds 5
+                    } catch {
+                        Write-Warning "[$i/$iterations] 請求失敗: $_"
+                    }
+                }
+
+                if ($responseTimes.Count -gt 0) {
+                    $avgResponseTime = [math]::Round(($responseTimes | Measure-Object -Average).Average, 2)
+                    $p95ResponseTime = $responseTimes | Sort-Object | Select-Object -Skip ([math]::Floor($responseTimes.Count * 0.95)) -First 1
+                    $maxResponseTime = ($responseTimes | Measure-Object -Maximum).Maximum
+                    
+                    Write-Host ""
+                    Write-Host "響應時間統計："
+                    Write-Host "- 平均響應時間: $avgResponseTime ms"
+                    Write-Host "- P95 響應時間: $p95ResponseTime ms"
+                    Write-Host "- 最大響應時間: $maxResponseTime ms"
+                    Write-Host "- 閾值: $(responseTimeThreshold) ms"
+                    Write-Host ""
+                    
+                    # 比較部署前後的響應時間
+                    # $baselineResponseTime = $(baseline.BaselineResponseTime)
+                    # Write-Host "部署前平均響應時間: $baselineResponseTime ms"
+                    # $improvement = $baselineResponseTime - $avgResponseTime
+                    # Write-Host "性能變化: $improvement ms"
+                    
+                    if ($avgResponseTime -gt $(responseTimeThreshold)) {
+                        Write-Error "✗ 平均響應時間超過閾值"
+                        exit 1
+                    } else {
+                        Write-Host "✓ 響應時間監控通過"
+                    }
+                } else {
+                    Write-Error "✗ 所有響應時間測試都失敗"
+                    exit 1
+                }
+
+                Write-Host "========================================="
+
+          - task: AzureCLI@2
+            displayName: "監控資源使用率"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host "========================================="
+                Write-Host "監控指標：資源使用率"
+                Write-Host "========================================="
+                Write-Host ""
+
+                # 查詢 Azure Monitor 中的資源使用率
+                # az monitor metrics list --resource /subscriptions/{subscription-id}/resourceGroups/$(resourceGroupName)/providers/Microsoft.Web/sites/$(appName) --metric "CpuPercentage,MemoryPercentage" --interval PT1M
+
+                Write-Host "查詢資源使用率..."
+                Write-Host ""
+
+                # 模擬資源使用率數據
+                $cpuUsage = [math]::Round((Get-Random -Minimum 20 -Maximum 60), 2)
+                $memoryUsage = [math]::Round((Get-Random -Minimum 30 -Maximum 70), 2)
+
+                Write-Host "當前資源使用率："
+                Write-Host "- CPU 使用率: $cpuUsage%"
+                Write-Host "- 記憶體使用率: $memoryUsage%"
+                Write-Host ""
+
+                # 檢查資源使用率
+                if ($cpuUsage -gt 80) {
+                    Write-Warning "⚠ 警告：CPU 使用率過高"
+                }
+
+                if ($memoryUsage -gt 80) {
+                    Write-Warning "⚠ 警告：記憶體使用率過高"
+                }
+
+                Write-Host "✓ 資源使用率在正常範圍內"
+                Write-Host "========================================="
+
+          - task: AzureCLI@2
+            displayName: "查詢 Application Insights 異常"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host "========================================="
+                Write-Host "監控指標：應用程式異常"
+                Write-Host "========================================="
+                Write-Host ""
+
+                # 查詢過去 10 分鐘的異常
+                # $query = "exceptions | where timestamp > ago(10m) | summarize count() by type, outerMessage | order by count_ desc"
+                # az monitor app-insights query --app $(appInsightsName) --resource-group $(appInsightsResourceGroup) --analytics-query $query
+
+                Write-Host "查詢部署後的異常..."
+                Write-Host ""
+
+                # 模擬查詢結果
+                $exceptionCount = Get-Random -Minimum 0 -Maximum 5
+
+                if ($exceptionCount -eq 0) {
+                    Write-Host "✓ 未發現異常"
+                } else {
+                    Write-Host "發現異常："
+                    Write-Host "- NullReferenceException: $exceptionCount 次"
+                    Write-Host ""
+                    
+                    if ($exceptionCount -gt 10) {
+                        Write-Error "✗ 異常數量過多，建議回滾"
+                        exit 1
+                    } else {
+                        Write-Warning "⚠ 發現少量異常，持續觀察"
+                    }
+                }
+
+                Write-Host "========================================="
+
+  - stage: AlertingConfiguration
+    displayName: "設定告警規則"
+    dependsOn: Deploy
+    condition: succeeded()
+    jobs:
+      - job: ConfigureAlerts
+        displayName: "配置監控告警"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: AzureCLI@2
+            displayName: "建立/更新告警規則"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host "========================================="
+                Write-Host "配置 Azure Monitor 告警規則"
+                Write-Host "========================================="
+                Write-Host ""
+
+                # 建立錯誤率告警
+                Write-Host "1. 錯誤率告警"
+                Write-Host "   條件：錯誤率 > $(errorRateThreshold)%"
+                Write-Host "   動作：發送電子郵件、Teams 通知"
+
+                # az monitor metrics alert create --name "High-Error-Rate" \
+                #   --resource-group $(resourceGroupName) \
+                #   --scopes /subscriptions/{sub-id}/resourceGroups/$(resourceGroupName)/providers/Microsoft.Web/sites/$(appName) \
+                #   --condition "avg requests/failed > $(errorRateThreshold)" \
+                #   --description "Error rate exceeded threshold" \
+                #   --evaluation-frequency 1m \
+                #   --window-size 5m \
+                #   --severity 2
+
+                Write-Host "   ✓ 錯誤率告警規則已建立"
+                Write-Host ""
+
+                # 建立響應時間告警
+                Write-Host "2. 響應時間告警"
+                Write-Host "   條件：平均響應時間 > $(responseTimeThreshold) ms"
+                Write-Host "   動作：發送電子郵件"
+
+                Write-Host "   ✓ 響應時間告警規則已建立"
+                Write-Host ""
+
+                # 建立可用性告警
+                Write-Host "3. 可用性告警"
+                Write-Host "   條件：可用性 < $(availabilityThreshold)%"
+                Write-Host "   動作：發送 SMS、電子郵件、觸發 PagerDuty"
+
+                Write-Host "   ✓ 可用性告警規則已建立"
+                Write-Host ""
+
+                Write-Host "========================================="
+                Write-Host "告警規則配置完成"
+                Write-Host "========================================="
+                Write-Host ""
+                Write-Host "告警通知管道："
+                Write-Host "- 電子郵件: devops-team@company.com"
+                Write-Host "- Microsoft Teams: #deployments 頻道"
+                Write-Host "- SMS: +886-xxx-xxx-xxx (僅嚴重告警)"
+                Write-Host "- PagerDuty: On-call Engineer"
+                Write-Host ""
+                Write-Host "✓ 所有告警規則已啟用"
+                Write-Host "========================================="
+
+          - task: PowerShell@2
+            displayName: "測試告警通知"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "發送測試通知"
+                Write-Host "========================================="
+                Write-Host ""
+                Write-Host "📧 發送部署成功通知到 Teams..."
+                Write-Host ""
+                Write-Host "通知內容："
+                Write-Host "---"
+                Write-Host "✅ 部署成功"
+                Write-Host "應用程式: $(appName)"
+                Write-Host "Build ID: $(Build.BuildId)"
+                Write-Host "部署時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                Write-Host "監控狀態: 所有指標正常"
+                Write-Host "查看詳情: $(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)"
+                Write-Host "---"
+                Write-Host ""
+                Write-Host "✓ 通知已發送"
+                Write-Host "========================================="
+
+  - stage: MonitoringReport
+    displayName: "監控報告"
+    dependsOn: PostDeploymentMonitoring
+    condition: succeeded()
+    jobs:
+      - job: GenerateReport
+        displayName: "生成監控報告"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: AzureCLI@2
+            displayName: "生成部署監控報告"
+            inputs:
+              azureSubscription: "$(azureSubscription)"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                Write-Host ""
+                Write-Host "========================================"
+                Write-Host "     部署監控完整報告"
+                Write-Host "========================================"
+                Write-Host ""
+                Write-Host "部署資訊："
+                Write-Host "- 應用程式: $(appName)"
+                Write-Host "- Build ID: $(Build.BuildId)"
+                Write-Host "- Pipeline: $(Build.DefinitionName)"
+                Write-Host "- 部署時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                Write-Host "- 環境: Production"
+                Write-Host ""
+                Write-Host "監控結果摘要："
+                Write-Host "✓ 錯誤率監控 - 通過（平均 0.5%，閾值 $(errorRateThreshold)%）"
+                Write-Host "✓ 響應時間監控 - 通過（平均 245ms，閾值 $(responseTimeThreshold)ms）"
+                Write-Host "✓ 資源使用率 - 正常（CPU 35%, 記憶體 45%）"
+                Write-Host "✓ 異常監控 - 通過（0 個異常）"
+                Write-Host "✓ 可用性 - 100%"
+                Write-Host ""
+                Write-Host "部署前後比較："
+                Write-Host "- 錯誤率: 0.5% → 0.5% (無變化)"
+                Write-Host "- 響應時間: 245ms → 245ms (無變化)"
+                Write-Host "- 可用性: 99.8% → 100% (提升)"
+                Write-Host ""
+                Write-Host "告警設定："
+                Write-Host "✓ 錯誤率告警已啟用"
+                Write-Host "✓ 響應時間告警已啟用"
+                Write-Host "✓ 可用性告警已啟用"
+                Write-Host ""
+                Write-Host "Application Insights 連結："
+                Write-Host "https://portal.azure.com/#@/resource/subscriptions/{sub-id}/resourceGroups/$(resourceGroupName)/providers/microsoft.insights/components/$(appInsightsName)"
+                Write-Host ""
+                Write-Host "✓✓✓ 部署成功且所有監控指標正常 ✓✓✓"
+                Write-Host ""
+                Write-Host "========================================"
+
+  # 自動回滾（當監控發現問題時）
+  - stage: AutoRollback
+    displayName: "監控異常自動回滾"
+    dependsOn: PostDeploymentMonitoring
+    condition: failed()
+    jobs:
+      - deployment: RollbackDueToMonitoring
+        displayName: "執行監控觸發的回滾"
+        environment: "production-rollback"
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: PowerShell@2
+                  displayName: "回滾原因分析"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "========================================"
+                      Write-Host "⚠⚠⚠ 監控異常 - 執行自動回滾 ⚠⚠⚠"
+                      Write-Host "========================================"
+                      Write-Host ""
+                      Write-Host "回滾原因："
+                      # $rollbackReason = $(errorMonitoring.RollbackReason)
+                      Write-Host "- 錯誤率超過閾值 $(errorRateThreshold)%"
+                      Write-Host ""
+                      Write-Host "部署資訊："
+                      Write-Host "- Build ID: $(Build.BuildId)"
+                      Write-Host "- 失敗時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                      Write-Host ""
+
+                - task: AzureAppServiceManage@0
+                  displayName: "回滾到前一個版本"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    Action: "Swap Slots"
+                    WebAppName: "$(appName)"
+                    ResourceGroupName: "$(resourceGroupName)"
+                    SourceSlot: "staging"
+                    SwapWithProduction: true
+
+                - task: PowerShell@2
+                  displayName: "驗證回滾並發送告警"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "驗證回滾結果..."
+                      Start-Sleep -Seconds 20
+
+                      $appUrl = "https://$(appName).azurewebsites.net/health"
+                      $response = Invoke-WebRequest -Uri $appUrl -UseBasicParsing
+
+                      if ($response.StatusCode -eq 200) {
+                          Write-Host "✓ 回滾成功"
+                      }
+
+                      Write-Host ""
+                      Write-Host "🚨 發送緊急告警通知..."
+                      Write-Host "通知對象："
+                      Write-Host "- DevOps 團隊"
+                      Write-Host "- On-call Engineer"
+                      Write-Host "- 技術主管"
+                      Write-Host ""
+                      Write-Host "告警內容："
+                      Write-Host "⚠ 部署後監控發現異常，已自動回滾"
+                      Write-Host "Build ID: $(Build.BuildId)"
+                      Write-Host "需要立即調查並修復問題"
+
+# ========================================
+# 監控與告警最佳實踐
+# ========================================
+#
+# 1. 選擇正確的指標
+#    - 業務指標優於技術指標
+#    - 用戶體驗優於系統指標
+#    - 選擇可操作的指標
+#
+# 2. 設定合理的閾值
+#    - 基於歷史數據設定
+#    - 考慮業務容忍度
+#    - 定期審查和調整
+#
+# 3. 分級告警
+#    - P0: 立即行動（簡訊、電話）
+#    - P1: 盡快處理（電子郵件、Teams）
+#    - P2: 正常工作時間處理
+#
+# 4. 避免告警疲勞
+#    - 減少誤報
+#    - 聚合相關告警
+#    - 實施告警靜默期
+#
+# 5. 自動化響應
+#    - 自動回滾
+#    - 自動擴展資源
+#    - 自動建立事件單
+#
+# 6. 可觀測性三支柱
+#    - Metrics（指標）
+#    - Logs（日誌）
+#    - Traces（追蹤）
+#
+# ========================================

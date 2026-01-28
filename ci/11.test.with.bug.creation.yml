@@ -1,0 +1,74 @@
+# ASP.NET Core - 測試失敗時自動建立 Bug
+# 當測試失敗時自動在 Azure DevOps 建立 Bug Work Item
+
+trigger:
+  - master
+
+pool:
+  vmImage: "ubuntu-24.04"
+
+variables:
+  buildConfiguration: "Release"
+
+steps:
+  - task: DotNetCoreCLI@2
+    displayName: ".NET Restore"
+    inputs:
+      command: "restore"
+      projects: "**/*.csproj"
+      feedsToUse: "select"
+
+  - task: DotNetCoreCLI@2
+    displayName: ".NET Build"
+    inputs:
+      command: "build"
+      projects: "**/*.csproj"
+      arguments: "--configuration $(buildConfiguration) --no-restore"
+
+  - task: DotNetCoreCLI@2
+    name: RunTests
+    displayName: ".NET Test"
+    continueOnError: true
+    inputs:
+      command: test
+      projects: "**/*[Tt]est/*.csproj"
+      arguments: "--configuration $(buildConfiguration) --no-restore --logger trx --results-directory $(Agent.TempDirectory)"
+      publishTestResults: true
+
+  - task: PublishTestResults@2
+    displayName: "Publish Test Results"
+    condition: always()
+    inputs:
+      testResultsFormat: "VSTest"
+      testResultsFiles: "**/*.trx"
+      searchFolder: "$(Agent.TempDirectory)"
+      mergeTestResults: true
+      failTaskOnFailedTests: false
+
+  - task: CreateWorkItem@1
+    displayName: "建立 Bug (當測試失敗時)"
+    condition: failed()
+    inputs:
+      workItemType: "Bug"
+      title: "測試失敗 - Build #$(Build.BuildNumber)"
+      assignedTo: "$(Build.RequestedForEmail)"
+      areaPath: "$(System.TeamProject)"
+      iterationPath: "$(System.TeamProject)"
+      fieldMappings: |
+        Tags=AutoCreated;TestFailure
+        Priority=2
+        Severity=2 - Medium
+      associate: true
+      associationType: "foundinbuild"
+      linkWorkItems: false
+      linkType: "System.LinkTypes.Hierarchy-Reverse"
+      linkTarget: "id"
+      targetId: ""
+      preventDuplicates: true
+      keyFields: |
+        System.Title
+        System.AreaPath
+        System.IterationPath
+        System.State
+      updateDuplicates: false
+      createOutputs: true

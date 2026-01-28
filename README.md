@@ -8,7 +8,7 @@ A demo ASP.NET Core 10.0 web application showcasing modern DevOps practices, clo
 
 ## Table of Contents
 
-- [SimpleWeb 1208](#simpleweb-1208)
+- [SimpleWeb](#simpleweb)
   - [Table of Contents](#table-of-contents)
   - [Overview](#overview)
   - [Features](#features)

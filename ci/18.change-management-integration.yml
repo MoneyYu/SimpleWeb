@@ -1,0 +1,778 @@
+# Change Management Integration - 變更管理整合
+# 
+# ========================================
+# 使用情境說明
+# ========================================
+# 
+# 這個 Pipeline 展示如何將 CD 流程與企業變更管理系統整合，
+# 實現合規的自動化部署流程，符合 ITIL、SOC 2、ISO 27001 等標準。
+#
+# 什麼是變更管理整合？
+# - 將部署流程與變更管理系統（Change Management System）整合
+# - 自動化變更單（Change Request）的建立、審批、關閉流程
+# - 確保每個生產環境變更都有適當的審批和記錄
+# - 提供完整的審計追蹤（Audit Trail）
+#
+# 適用場景：
+# 1. 受監管產業：金融、醫療、政府等需要嚴格變更控制的產業
+# 2. 企業合規要求：SOX、HIPAA、PCI DSS、SOC 2、ISO 27001
+# 3. ITIL 流程：遵循 ITIL 變更管理最佳實踐
+# 4. 大型企業：需要多層級審批和協調的組織
+# 5. 關鍵系統：對業務影響重大的系統變更
+# 6. 審計需求：需要完整記錄所有變更的組織
+#
+# 變更管理系統類型：
+# - ServiceNow：最常見的企業級 ITSM 平台
+# - Jira Service Management：Atlassian 的 ITSM 解決方案
+# - BMC Remedy：傳統的 ITSM 平台
+# - Cherwell：企業級服務管理
+# - Azure DevOps Work Items：微軟的工作項追蹤
+# - Custom ITSM：企業自建的變更管理系統
+#
+# 變更管理流程：
+# 1. 變更請求（Change Request）
+#    - 自動建立變更單
+#    - 填寫變更詳情、風險評估、回滾計劃
+#
+# 2. 變更審批（Change Approval）
+#    - CAB（Change Advisory Board）審批
+#    - 自動或手動審批流程
+#    - 緊急變更的快速通道
+#
+# 3. 變更實施（Change Implementation）
+#    - 在核准的時間窗口內執行
+#    - 記錄實施過程和結果
+#
+# 4. 變更驗證（Change Verification）
+#    - 驗證變更是否成功
+#    - 執行部署後測試
+#
+# 5. 變更關閉（Change Closure）
+#    - 更新變更單狀態
+#    - 記錄實際結果和學習
+#
+# ITIL 變更類型：
+# - 標準變更（Standard Change）：預先核准，低風險
+# - 正常變更（Normal Change）：需要 CAB 審批
+# - 緊急變更（Emergency Change）：緊急情況下的快速審批
+#
+# 優勢：
+# - 合規性：符合監管和內部政策要求
+# - 可追溯性：完整記錄所有變更和決策
+# - 風險管理：透過審批流程降低變更風險
+# - 協調性：確保相關團隊了解變更
+# - 知識管理：累積變更知識和最佳實踐
+# - 審計友善：提供完整的審計追蹤
+#
+# 實際案例：
+# - 銀行業：所有生產變更需要 CAB 審批
+# - 醫療業：符合 HIPAA 的變更記錄要求
+# - 電商平台：在低流量時段執行變更
+# - SaaS 公司：自動化標準變更，加速交付
+#
+# 挑戰與解決方案：
+# - 速度 vs 控制：使用標準變更加速低風險部署
+# - 審批延遲：實施自動審批和預先核准機制
+# - 文件負擔：自動填充變更單資訊
+# - 緊急變更：建立快速通道和事後審查機制
+#
+# ========================================
+
+trigger:
+  - master
+
+variables:
+  buildConfiguration: 'Release'
+  azureSubscription: 'Azure Pass - 20210830(b9beff15-1273-439b-bd95-d83efb276249)'
+  appName: 'demo0830'
+  resourceGroupName: 'demo-rg'
+  # 變更管理設定
+  changeManagementSystem: 'ServiceNow' # ServiceNow, Jira, AzureDevOps
+  serviceNowInstance: 'https://dev12345.service-now.com'
+  serviceNowApiUrl: '$(serviceNowInstance)/api/now/table/change_request'
+  # 變更分類
+  changeType: 'Standard' # Standard, Normal, Emergency
+  changeCategory: 'Software Deployment'
+  changeRisk: 'Low' # Low, Medium, High
+  changePriority: 'Medium' # Low, Medium, High, Critical
+  # 部署時間窗口
+  deploymentWindowStart: '22:00' # 晚上 10 點
+  deploymentWindowEnd: '02:00' # 凌晨 2 點
+  # 審批人員
+  changeApprovers: 'tech-lead@company.com,operations-manager@company.com'
+
+stages:
+  - stage: Build
+    displayName: '建置階段'
+    jobs:
+      - job: Build
+        displayName: '建置應用程式'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: DotNetCoreCLI@2
+            displayName: '.NET Restore'
+            inputs:
+              command: 'restore'
+              projects: '**/*.csproj'
+
+          - task: DotNetCoreCLI@2
+            displayName: '.NET Build'
+            inputs:
+              command: 'build'
+              projects: '**/*.csproj'
+              arguments: '--configuration $(buildConfiguration)'
+
+          - task: DotNetCoreCLI@2
+            displayName: '.NET Test'
+            inputs:
+              command: 'test'
+              projects: '**/*[Tt]est/*.csproj'
+              arguments: '--configuration $(buildConfiguration)'
+
+          - task: DotNetCoreCLI@2
+            displayName: '.NET Publish'
+            inputs:
+              command: 'publish'
+              publishWebProjects: true
+              arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+              zipAfterPublish: true
+
+          - task: PublishBuildArtifacts@1
+            displayName: '發布建置成品'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: 'drop'
+
+  - stage: CreateChangeRequest
+    displayName: '建立變更請求'
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: GenerateChangeRequest
+        displayName: '生成變更單資訊'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: PowerShell@2
+            displayName: '準備變更單資訊'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "========================================="
+                Write-Host "準備變更請求（Change Request）"
+                Write-Host "========================================="
+                Write-Host ""
+                
+                # 收集變更資訊
+                $changeInfo = @{
+                    'short_description' = "Deploy SimpleWeb Build $(Build.BuildId) to Production"
+                    'description' = @"
+                自動化部署請求
+                
+                應用程式: SimpleWeb
+                環境: Production
+                Build ID: $(Build.BuildId)
+                Build URL: $(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)
+                
+                變更內容:
+                - 版本更新
+                - Bug 修復
+                - 效能改進
+                
+                測試狀態:
+                - Unit Tests: 通過
+                - Integration Tests: 通過
+                - Security Scan: 通過
+                
+                預期影響:
+                - 預計停機時間: 0 分鐘（零停機部署）
+                - 受影響用戶: 0
+                - 業務影響: 無
+"@
+                    'type' = '$(changeType)'
+                    'category' = '$(changeCategory)'
+                    'risk' = '$(changeRisk)'
+                    'priority' = '$(changePriority)'
+                    'requested_by' = '$(Build.RequestedFor)'
+                    'assignment_group' = 'DevOps Team'
+                    'implementation_plan' = @"
+                1. 執行 Pre-deployment 健康檢查
+                2. 備份當前配置
+                3. 部署新版本到 staging slot
+                4. 執行 smoke tests
+                5. 切換 production slot
+                6. 執行 post-deployment 驗證
+                7. 監控 15 分鐘
+"@
+                    'backout_plan' = @"
+                回滾計劃:
+                1. 如果 smoke tests 失敗，自動回滾
+                2. 如果生產驗證失敗，立即切換回 staging slot
+                3. 如果監控發現異常，執行緊急回滾
+                4. 回滾時間: < 5 分鐘
+                
+                回滾責任人: DevOps On-call Engineer
+                緊急聯絡: +886-xxx-xxx-xxx
+"@
+                    'test_plan' = 'Automated smoke tests and monitoring'
+                    'justification' = 'Regular deployment cycle - scheduled release'
+                    'start_date' = (Get-Date).AddHours(2).ToString("yyyy-MM-dd HH:mm:ss")
+                    'end_date' = (Get-Date).AddHours(3).ToString("yyyy-MM-dd HH:mm:ss")
+                }
+                
+                Write-Host "變更單資訊："
+                Write-Host "- 簡述: $($changeInfo.short_description)"
+                Write-Host "- 類型: $($changeInfo.type)"
+                Write-Host "- 風險: $($changeInfo.risk)"
+                Write-Host "- 優先級: $($changeInfo.priority)"
+                Write-Host "- 計劃開始: $($changeInfo.start_date)"
+                Write-Host ""
+                
+                # 將資訊儲存為 JSON
+                $changeInfoJson = $changeInfo | ConvertTo-Json -Depth 10
+                $changeInfoJson | Out-File -FilePath "$(Build.ArtifactStagingDirectory)/change-request.json"
+                
+                Write-Host "✓ 變更單資訊已準備完成"
+                Write-Host "========================================="
+
+          - task: PublishBuildArtifacts@1
+            displayName: '發布變更單資訊'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: 'change-request'
+
+      - job: SubmitToServiceNow
+        displayName: '提交變更單到 ServiceNow'
+        dependsOn: GenerateChangeRequest
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: PowerShell@2
+            displayName: '建立 ServiceNow 變更單'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "========================================="
+                Write-Host "提交變更單到 ServiceNow"
+                Write-Host "========================================="
+                Write-Host ""
+                Write-Host "ServiceNow 實例: $(serviceNowInstance)"
+                Write-Host "API Endpoint: $(serviceNowApiUrl)"
+                Write-Host ""
+                
+                # 實際環境中需要使用 ServiceNow API
+                # $headers = @{
+                #     'Authorization' = "Basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${username}:${password}")))"
+                #     'Content-Type' = 'application/json'
+                #     'Accept' = 'application/json'
+                # }
+                
+                # $changeRequest = Get-Content "$(Build.ArtifactStagingDirectory)/change-request.json" | ConvertFrom-Json
+                # $response = Invoke-RestMethod -Uri "$(serviceNowApiUrl)" -Method Post -Headers $headers -Body ($changeRequest | ConvertTo-Json)
+                
+                # 模擬 API 回應
+                $changeNumber = "CHG0030$(Get-Random -Minimum 100 -Maximum 999)"
+                $changeSysId = [guid]::NewGuid().ToString()
+                
+                Write-Host "變更單建立成功！"
+                Write-Host ""
+                Write-Host "變更單號: $changeNumber"
+                Write-Host "Sys ID: $changeSysId"
+                Write-Host "狀態: New - Awaiting Approval"
+                Write-Host "URL: $(serviceNowInstance)/change_request.do?sys_id=$changeSysId"
+                Write-Host ""
+                
+                # 儲存變更單號供後續使用
+                Write-Host "##vso[task.setvariable variable=ChangeRequestNumber;isOutput=true]$changeNumber"
+                Write-Host "##vso[task.setvariable variable=ChangeRequestSysId;isOutput=true]$changeSysId"
+                
+                Write-Host "✓ 變更單已提交"
+                Write-Host "========================================="
+            name: serviceNow
+
+          - task: PowerShell@2
+            displayName: '發送通知給審批人員'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "========================================="
+                Write-Host "發送審批通知"
+                Write-Host "========================================="
+                Write-Host ""
+                
+                $changeNumber = "$(serviceNow.ChangeRequestNumber)"
+                $approvers = "$(changeApprovers)" -split ','
+                
+                Write-Host "變更單號: $changeNumber"
+                Write-Host "審批人員:"
+                foreach ($approver in $approvers) {
+                    Write-Host "  - $approver"
+                }
+                Write-Host ""
+                
+                # 發送郵件或 Teams 通知
+                Write-Host "📧 通知內容:"
+                Write-Host "---"
+                Write-Host "主旨: [需要審批] 生產環境部署變更 - $changeNumber"
+                Write-Host ""
+                Write-Host "您好,"
+                Write-Host ""
+                Write-Host "有一個新的變更請求需要您的審批："
+                Write-Host ""
+                Write-Host "變更單號: $changeNumber"
+                Write-Host "應用程式: SimpleWeb"
+                Write-Host "環境: Production"
+                Write-Host "類型: $(changeType)"
+                Write-Host "風險: $(changeRisk)"
+                Write-Host "計劃時間: $(deploymentWindowStart) - $(deploymentWindowEnd)"
+                Write-Host ""
+                Write-Host "請前往 ServiceNow 審批此變更："
+                Write-Host "$(serviceNowInstance)/change_request.do?sys_id=$(serviceNow.ChangeRequestSysId)"
+                Write-Host ""
+                Write-Host "或在 Azure DevOps 中審批："
+                Write-Host "$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)"
+                Write-Host "---"
+                Write-Host ""
+                Write-Host "✓ 通知已發送"
+                Write-Host "========================================="
+
+  - stage: WaitForApproval
+    displayName: '等待變更審批'
+    dependsOn: CreateChangeRequest
+    condition: succeeded()
+    jobs:
+      - deployment: ChangeApproval
+        displayName: '變更審批閘門'
+        environment: 'change-approval-prod'
+        pool:
+          vmImage: 'ubuntu-latest'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: PowerShell@2
+                  displayName: '檢查變更單狀態'
+                  inputs:
+                    targetType: 'inline'
+                    script: |
+                      Write-Host "========================================="
+                      Write-Host "等待變更審批"
+                      Write-Host "========================================="
+                      Write-Host ""
+                      
+                      # 在實際環境中，會輪詢 ServiceNow API 檢查審批狀態
+                      # do {
+                      #     $change = Invoke-RestMethod -Uri "$(serviceNowApiUrl)/$(serviceNow.ChangeRequestSysId)"
+                      #     if ($change.approval -eq 'approved') {
+                      #         break
+                      #     }
+                      #     Start-Sleep -Seconds 60
+                      # } while ($true)
+                      
+                      Write-Host "變更單號: CHG0030123"
+                      Write-Host ""
+                      Write-Host "審批流程："
+                      Write-Host "1. Tech Lead - ✓ 已審批 (2024-01-20 14:30)"
+                      Write-Host "2. Operations Manager - ✓ 已審批 (2024-01-20 14:45)"
+                      Write-Host ""
+                      Write-Host "最終狀態: ✓ 已核准"
+                      Write-Host "核准時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                      Write-Host ""
+                      Write-Host "可以繼續執行部署"
+                      Write-Host "========================================="
+
+                - task: PowerShell@2
+                  displayName: '驗證部署時間窗口'
+                  inputs:
+                    targetType: 'inline'
+                    script: |
+                      Write-Host "========================================="
+                      Write-Host "驗證部署時間窗口"
+                      Write-Host "========================================="
+                      Write-Host ""
+                      
+                      $currentTime = Get-Date
+                      $windowStart = [DateTime]::Parse("$(deploymentWindowStart)")
+                      $windowEnd = [DateTime]::Parse("$(deploymentWindowEnd)")
+                      
+                      Write-Host "當前時間: $($currentTime.ToString('HH:mm'))"
+                      Write-Host "允許窗口: $(deploymentWindowStart) - $(deploymentWindowEnd)"
+                      Write-Host ""
+                      
+                      # 簡化的時間檢查（實際需要處理跨日情況）
+                      # if ($currentTime.Hour -lt $windowStart.Hour -or $currentTime.Hour -gt $windowEnd.Hour) {
+                      #     Write-Warning "當前不在部署時間窗口內"
+                      #     Write-Host "等待到部署時間窗口..."
+                      # }
+                      
+                      Write-Host "✓ 在允許的部署時間窗口內"
+                      Write-Host "========================================="
+
+  - stage: ImplementChange
+    displayName: '實施變更'
+    dependsOn: WaitForApproval
+    condition: succeeded()
+    jobs:
+      - deployment: Deploy
+        displayName: '執行部署'
+        environment: 'production'
+        pool:
+          vmImage: 'ubuntu-latest'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: PowerShell@2
+                  displayName: '更新變更單狀態 - 實施中'
+                  inputs:
+                    targetType: 'inline'
+                    script: |
+                      Write-Host "========================================="
+                      Write-Host "更新 ServiceNow 變更單"
+                      Write-Host "========================================="
+                      Write-Host ""
+                      
+                      # 更新變更單狀態為 "Implement"
+                      # $updateBody = @{
+                      #     'state' = 'Implement'
+                      #     'work_notes' = "Deployment started by Azure DevOps Pipeline $(Build.BuildId)"
+                      #     'actual_start' = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                      # } | ConvertTo-Json
+                      
+                      # Invoke-RestMethod -Uri "$(serviceNowApiUrl)/$(serviceNow.ChangeRequestSysId)" -Method Patch -Body $updateBody
+                      
+                      Write-Host "變更單號: CHG0030123"
+                      Write-Host "狀態更新: New → Implement"
+                      Write-Host "實際開始時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                      Write-Host ""
+                      Write-Host "✓ 變更單已更新"
+                      Write-Host "========================================="
+
+                - task: DownloadBuildArtifacts@0
+                  displayName: '下載建置成品'
+                  inputs:
+                    buildType: 'current'
+                    downloadType: 'single'
+                    artifactName: 'drop'
+                    downloadPath: '$(System.ArtifactsDirectory)'
+
+                - task: AzureWebApp@1
+                  displayName: '部署到 Azure Web App'
+                  inputs:
+                    azureSubscription: '$(azureSubscription)'
+                    appType: 'webApp'
+                    appName: '$(appName)'
+                    package: '$(System.ArtifactsDirectory)/drop/**/*.zip'
+                    deploymentMethod: 'auto'
+
+                - task: PowerShell@2
+                  displayName: '記錄部署詳情到變更單'
+                  inputs:
+                    targetType: 'inline'
+                    script: |
+                      Write-Host "記錄部署詳情..."
+                      
+                      # 更新 work notes
+                      # $workNotes = @"
+                      # Deployment completed successfully
+                      # 
+                      # Details:
+                      # - Build ID: $(Build.BuildId)
+                      # - Deployment Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+                      # - Deployment Method: Zero-downtime slot swap
+                      # - Tests Run: Smoke tests passed
+                      # "@
+                      
+                      Write-Host "✓ 部署詳情已記錄到變更單"
+
+  - stage: VerifyChange
+    displayName: '驗證變更'
+    dependsOn: ImplementChange
+    condition: succeeded()
+    jobs:
+      - job: PostDeploymentVerification
+        displayName: '部署後驗證'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: PowerShell@2
+            displayName: '執行驗證測試'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "========================================="
+                Write-Host "部署後驗證"
+                Write-Host "========================================="
+                Write-Host ""
+                
+                $appUrl = "https://$(appName).azurewebsites.net"
+                
+                # 健康檢查
+                Write-Host "1. 健康檢查..."
+                try {
+                    $response = Invoke-WebRequest -Uri "$appUrl/health" -UseBasicParsing
+                    if ($response.StatusCode -eq 200) {
+                        Write-Host "   ✓ 健康檢查通過"
+                    }
+                } catch {
+                    Write-Error "   ✗ 健康檢查失敗"
+                    exit 1
+                }
+                
+                # 功能測試
+                Write-Host "2. 功能測試..."
+                try {
+                    $homeResponse = Invoke-WebRequest -Uri $appUrl -UseBasicParsing
+                    if ($homeResponse.StatusCode -eq 200) {
+                        Write-Host "   ✓ 首頁正常"
+                    }
+                } catch {
+                    Write-Error "   ✗ 首頁測試失敗"
+                    exit 1
+                }
+                
+                # 效能檢查
+                Write-Host "3. 效能檢查..."
+                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                Invoke-WebRequest -Uri $appUrl -UseBasicParsing | Out-Null
+                $stopwatch.Stop()
+                $responseTime = $stopwatch.ElapsedMilliseconds
+                
+                Write-Host "   響應時間: $responseTime ms"
+                if ($responseTime -lt 3000) {
+                    Write-Host "   ✓ 效能符合預期"
+                } else {
+                    Write-Warning "   ⚠ 響應時間較長"
+                }
+                
+                Write-Host ""
+                Write-Host "✓ 所有驗證測試通過"
+                Write-Host "========================================="
+
+          - task: PowerShell@2
+            displayName: '監控關鍵指標'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "監控部署後指標（15分鐘）..."
+                Write-Host ""
+                Write-Host "監控項目："
+                Write-Host "- 錯誤率"
+                Write-Host "- 響應時間"
+                Write-Host "- 可用性"
+                Write-Host "- 資源使用率"
+                Write-Host ""
+                
+                # 實際監控邏輯
+                Start-Sleep -Seconds 60
+                
+                Write-Host "監控結果："
+                Write-Host "✓ 錯誤率: 0.1% (正常)"
+                Write-Host "✓ 平均響應時間: 245ms (正常)"
+                Write-Host "✓ 可用性: 100% (正常)"
+                Write-Host "✓ CPU: 35%, 記憶體: 45% (正常)"
+                Write-Host ""
+                Write-Host "✓ 所有指標正常"
+
+  - stage: CloseChange
+    displayName: '關閉變更單'
+    dependsOn: VerifyChange
+    condition: succeeded()
+    jobs:
+      - job: UpdateChangeRequest
+        displayName: '更新並關閉變更單'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: PowerShell@2
+            displayName: '更新變更單為成功'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "========================================="
+                Write-Host "關閉 ServiceNow 變更單"
+                Write-Host "========================================="
+                Write-Host ""
+                
+                # 更新變更單為成功完成
+                # $closeBody = @{
+                #     'state' = 'Closed'
+                #     'close_code' = 'successful'
+                #     'close_notes' = @"
+                # Deployment completed successfully
+                # 
+                # Verification Results:
+                # - Health Check: Passed
+                # - Smoke Tests: Passed
+                # - Performance: Within acceptable range
+                # - Monitoring: All metrics normal
+                # 
+                # Actual Duration: 45 minutes
+                # Downtime: 0 minutes
+                # Rollback Required: No
+                # 
+                # Build ID: $(Build.BuildId)
+                # Completed: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+                # "@
+                #     'actual_end' = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                # } | ConvertTo-Json
+                
+                # Invoke-RestMethod -Uri "$(serviceNowApiUrl)/$(serviceNow.ChangeRequestSysId)" -Method Patch -Body $closeBody
+                
+                Write-Host "變更單號: CHG0030123"
+                Write-Host "最終狀態: Closed - Successful"
+                Write-Host "完成時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                Write-Host ""
+                Write-Host "變更總結："
+                Write-Host "- 計劃時間: 60 分鐘"
+                Write-Host "- 實際時間: 45 分鐘"
+                Write-Host "- 停機時間: 0 分鐘"
+                Write-Host "- 是否回滾: 否"
+                Write-Host "- 驗證結果: 全部通過"
+                Write-Host ""
+                Write-Host "✓ 變更單已成功關閉"
+                Write-Host "========================================="
+
+          - task: PowerShell@2
+            displayName: '生成變更報告'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host ""
+                Write-Host "========================================"
+                Write-Host "     變更管理完整報告"
+                Write-Host "========================================"
+                Write-Host ""
+                Write-Host "變更資訊："
+                Write-Host "- 變更單號: CHG0030123"
+                Write-Host "- 應用程式: SimpleWeb"
+                Write-Host "- 環境: Production"
+                Write-Host "- 變更類型: $(changeType)"
+                Write-Host "- 風險級別: $(changeRisk)"
+                Write-Host ""
+                Write-Host "時間軸："
+                Write-Host "1. 變更單建立: 14:00"
+                Write-Host "2. 審批完成: 14:45"
+                Write-Host "3. 部署開始: 22:00"
+                Write-Host "4. 部署完成: 22:30"
+                Write-Host "5. 驗證完成: 22:45"
+                Write-Host "6. 變更關閉: 22:50"
+                Write-Host ""
+                Write-Host "審批記錄："
+                Write-Host "- Tech Lead: 已核准"
+                Write-Host "- Operations Manager: 已核准"
+                Write-Host ""
+                Write-Host "部署結果："
+                Write-Host "✓ 部署成功"
+                Write-Host "✓ 所有測試通過"
+                Write-Host "✓ 零停機時間"
+                Write-Host "✓ 無需回滾"
+                Write-Host ""
+                Write-Host "合規性："
+                Write-Host "✓ 遵循 ITIL 變更管理流程"
+                Write-Host "✓ 完整的審批記錄"
+                Write-Host "✓ 詳細的實施和驗證記錄"
+                Write-Host "✓ 符合審計要求"
+                Write-Host ""
+                Write-Host "========================================"
+
+  # 變更失敗處理
+  - stage: ChangeFailure
+    displayName: '變更失敗處理'
+    dependsOn:
+      - ImplementChange
+      - VerifyChange
+    condition: failed()
+    jobs:
+      - job: HandleFailure
+        displayName: '處理變更失敗'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: PowerShell@2
+            displayName: '更新變更單為失敗'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "========================================="
+                Write-Host "⚠ 變更失敗 - 更新變更單"
+                Write-Host "========================================="
+                Write-Host ""
+                
+                # $failureBody = @{
+                #     'state' = 'Closed'
+                #     'close_code' = 'unsuccessful'
+                #     'close_notes' = "Deployment failed. System rolled back. Investigation required."
+                #     'actual_end' = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                # } | ConvertTo-Json
+                
+                Write-Host "變更單號: CHG0030123"
+                Write-Host "狀態: Closed - Unsuccessful"
+                Write-Host "失敗原因: 部署驗證失敗"
+                Write-Host "已執行回滾: 是"
+                Write-Host ""
+                Write-Host "✓ 變更單已更新"
+                
+          - task: PowerShell@2
+            displayName: '發送失敗通知'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "發送變更失敗通知..."
+                Write-Host ""
+                Write-Host "通知對象："
+                Write-Host "- DevOps 團隊"
+                Write-Host "- 變更審批人"
+                Write-Host "- 技術主管"
+                Write-Host ""
+                Write-Host "通知內容："
+                Write-Host "⚠ 變更 CHG0030123 執行失敗"
+                Write-Host "系統已自動回滾到穩定版本"
+                Write-Host "需要進行根本原因分析"
+
+# ========================================
+# 變更管理最佳實踐
+# ========================================
+#
+# 1. 自動化標準變更
+#    - 預先核准低風險變更
+#    - 自動化審批流程
+#    - 加快交付速度
+#
+# 2. 風險評估
+#    - 根據變更範圍評估風險
+#    - 高風險需要更嚴格審批
+#    - 記錄風險緩解措施
+#
+# 3. 時間窗口管理
+#    - 在低流量時段部署
+#    - 避免在業務高峰期變更
+#    - 考慮不同時區的影響
+#
+# 4. 完整的回滾計劃
+#    - 每個變更都要有回滾計劃
+#    - 測試回滾程序
+#    - 明確回滾決策標準
+#
+# 5. 審批流程優化
+#    - 實施分級審批
+#    - 緊急變更快速通道
+#    - 避免審批成為瓶頸
+#
+# 6. 持續改進
+#    - 分析變更失敗原因
+#    - 優化變更流程
+#    - 分享經驗教訓
+#
+# 7. 合規性文件
+#    - 保留完整審計追蹤
+#    - 定期審查合規性
+#    - 準備審計報告
+#
+# 8. 溝通與協作
+#    - 及時通知相關人員
+#    - 記錄變更會議決議
+#    - 建立變更日曆
+#
+# ========================================

@@ -1,0 +1,369 @@
+# Blue-Green Deployment
+# 藍綠部署：零停機部署策略
+# 同時維護兩個完全相同的環境（藍環境和綠環境）
+# 在切換流量前先驗證新版本，確保安全後再切換
+# 如果發現問題可以立即切換回舊版本
+
+trigger:
+  - master
+
+variables:
+  buildConfiguration: "Release"
+  azureSubscription: "Azure Pass - 20210830(b9beff15-1273-439b-bd95-d83efb276249)"
+  resourceGroupName: "demo-rg"
+  # 藍綠環境的 App Service 名稱
+  blueSlotName: "demo0830-blue"
+  greenSlotName: "demo0830-green"
+  activeSlot: "blue" # 目前線上的環境
+
+stages:
+  - stage: Build
+    displayName: "建置階段"
+    jobs:
+      - job: Build
+        displayName: "建置與發布"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Restore"
+            inputs:
+              command: "restore"
+              projects: "**/*.csproj"
+
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Build"
+            inputs:
+              command: "build"
+              projects: "**/*.csproj"
+              arguments: "--configuration $(buildConfiguration)"
+
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Test"
+            inputs:
+              command: "test"
+              projects: "**/*[Tt]est/*.csproj"
+              arguments: "--configuration $(buildConfiguration)"
+
+          - task: DotNetCoreCLI@2
+            displayName: ".NET Publish"
+            inputs:
+              command: "publish"
+              publishWebProjects: true
+              arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)"
+              zipAfterPublish: true
+
+          - task: PublishBuildArtifacts@1
+            displayName: "發布建置成品"
+            inputs:
+              PathtoPublish: "$(Build.ArtifactStagingDirectory)"
+              ArtifactName: "drop"
+
+  - stage: DeployToInactive
+    displayName: "部署到非活動環境"
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - deployment: DeployToGreen
+        displayName: "部署到綠環境（非活動）"
+        environment: "blue-green-staging"
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: DownloadBuildArtifacts@0
+                  displayName: "下載建置成品"
+                  inputs:
+                    buildType: "current"
+                    downloadType: "single"
+                    artifactName: "drop"
+                    downloadPath: "$(System.ArtifactsDirectory)"
+
+                - task: AzureWebApp@1
+                  displayName: "部署到綠環境"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    appType: "webApp"
+                    appName: "$(greenSlotName)"
+                    package: "$(System.ArtifactsDirectory)/drop/**/*.zip"
+                    deploymentMethod: "auto"
+
+  - stage: ValidateGreenEnvironment
+    displayName: "驗證綠環境"
+    dependsOn: DeployToInactive
+    condition: succeeded()
+    jobs:
+      - job: HealthCheck
+        displayName: "健康檢查與驗證"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: PowerShell@2
+            displayName: "等待應用程式啟動"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "等待 30 秒讓應用程式完全啟動..."
+                Start-Sleep -Seconds 30
+
+          - task: PowerShell@2
+            displayName: "Health Check - 綠環境"
+            inputs:
+              targetType: "inline"
+              script: |
+                $greenUrl = "https://$(greenSlotName).azurewebsites.net/health"
+                Write-Host "檢查綠環境健康狀態: $greenUrl"
+
+                try {
+                    $response = Invoke-WebRequest -Uri $greenUrl -UseBasicParsing -TimeoutSec 30
+                    if ($response.StatusCode -eq 200) {
+                        Write-Host "✓ 綠環境健康檢查通過 (HTTP $($response.StatusCode))"
+                    } else {
+                        Write-Error "✗ 綠環境健康檢查失敗 (HTTP $($response.StatusCode))"
+                        exit 1
+                    }
+                } catch {
+                    Write-Error "✗ 無法連接到綠環境: $_"
+                    exit 1
+                }
+
+          - task: PowerShell@2
+            displayName: "Smoke Test - 關鍵功能驗證"
+            inputs:
+              targetType: "inline"
+              script: |
+                $greenUrl = "https://$(greenSlotName).azurewebsites.net"
+
+                # 測試首頁
+                Write-Host "測試首頁..."
+                $homeResponse = Invoke-WebRequest -Uri $greenUrl -UseBasicParsing
+                if ($homeResponse.StatusCode -ne 200) {
+                    Write-Error "首頁測試失敗"
+                    exit 1
+                }
+                Write-Host "✓ 首頁測試通過"
+
+                # 測試隱私頁面
+                Write-Host "測試隱私頁面..."
+                $privacyResponse = Invoke-WebRequest -Uri "$greenUrl/Home/Privacy" -UseBasicParsing
+                if ($privacyResponse.StatusCode -ne 200) {
+                    Write-Error "隱私頁面測試失敗"
+                    exit 1
+                }
+                Write-Host "✓ 隱私頁面測試通過"
+
+                Write-Host "✓ 所有 Smoke Test 通過"
+
+          - task: PowerShell@2
+            displayName: "效能基準測試"
+            inputs:
+              targetType: "inline"
+              script: |
+                $greenUrl = "https://$(greenSlotName).azurewebsites.net"
+
+                Write-Host "執行效能測試（響應時間）..."
+                $totalTime = 0
+                $iterations = 5
+
+                for ($i = 1; $i -le $iterations; $i++) {
+                    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                    Invoke-WebRequest -Uri $greenUrl -UseBasicParsing | Out-Null
+                    $stopwatch.Stop()
+                    $responseTime = $stopwatch.ElapsedMilliseconds
+                    Write-Host "第 $i 次請求: $responseTime ms"
+                    $totalTime += $responseTime
+                }
+
+                $avgTime = $totalTime / $iterations
+                Write-Host "平均響應時間: $avgTime ms"
+
+                # 檢查是否超過閾值（例如 3000ms）
+                if ($avgTime -gt 3000) {
+                    Write-Warning "⚠ 警告：平均響應時間超過 3 秒"
+                } else {
+                    Write-Host "✓ 效能測試通過"
+                }
+
+  - stage: SwitchTraffic
+    displayName: "切換流量到綠環境"
+    dependsOn: ValidateGreenEnvironment
+    condition: succeeded()
+    jobs:
+      - deployment: SwitchToGreen
+        displayName: "流量切換（需手動核准）"
+        environment: "blue-green-production"
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: PowerShell@2
+                  displayName: "顯示切換資訊"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      Write-Host "========================================="
+                      Write-Host "準備切換流量"
+                      Write-Host "========================================="
+                      Write-Host "目前活動環境: 藍環境 ($(blueSlotName))"
+                      Write-Host "即將切換到: 綠環境 ($(greenSlotName))"
+                      Write-Host "========================================="
+                      Write-Host ""
+                      Write-Host "驗證結果:"
+                      Write-Host "✓ 健康檢查通過"
+                      Write-Host "✓ Smoke Test 通過"
+                      Write-Host "✓ 效能測試通過"
+                      Write-Host ""
+                      Write-Host "請確認是否要執行流量切換"
+
+                - task: AzureCLI@2
+                  displayName: "更新流量路由（模擬）"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    scriptType: "pscore"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      Write-Host "執行流量切換..."
+                      Write-Host "將流量從藍環境切換到綠環境"
+
+                      # 實際場景中，這裡會執行：
+                      # - 更新 Azure Traffic Manager
+                      # - 更新 Azure Front Door 規則
+                      # - 更新 App Service 的 Production Slot
+                      # - 更新 DNS 記錄
+
+                      Write-Host "✓ 流量切換完成"
+                      Write-Host "新的活動環境: 綠環境"
+
+  - stage: MonitorProduction
+    displayName: "監控生產環境"
+    dependsOn: SwitchTraffic
+    condition: succeeded()
+    jobs:
+      - job: MonitorAfterSwitch
+        displayName: "切換後監控"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: PowerShell@2
+            displayName: "監控新環境（5分鐘）"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "開始監控新的生產環境..."
+                Write-Host "監控時間: 5 分鐘"
+
+                $greenUrl = "https://$(greenSlotName).azurewebsites.net/health"
+                $monitorDuration = 5 # 分鐘
+                $checkInterval = 30 # 秒
+                $totalChecks = ($monitorDuration * 60) / $checkInterval
+
+                $successCount = 0
+                $failCount = 0
+
+                for ($i = 1; $i -le $totalChecks; $i++) {
+                    try {
+                        $response = Invoke-WebRequest -Uri $greenUrl -UseBasicParsing -TimeoutSec 10
+                        if ($response.StatusCode -eq 200) {
+                            $successCount++
+                            Write-Host "[$i/$totalChecks] ✓ 健康 (成功: $successCount, 失敗: $failCount)"
+                        } else {
+                            $failCount++
+                            Write-Warning "[$i/$totalChecks] ✗ 狀態碼: $($response.StatusCode)"
+                        }
+                    } catch {
+                        $failCount++
+                        Write-Warning "[$i/$totalChecks] ✗ 請求失敗: $_"
+                    }
+                    
+                    if ($i -lt $totalChecks) {
+                        Start-Sleep -Seconds $checkInterval
+                    }
+                }
+
+                $successRate = ($successCount / $totalChecks) * 100
+                Write-Host ""
+                Write-Host "========================================="
+                Write-Host "監控結果"
+                Write-Host "========================================="
+                Write-Host "總檢查次數: $totalChecks"
+                Write-Host "成功次數: $successCount"
+                Write-Host "失敗次數: $failCount"
+                Write-Host "成功率: $successRate%"
+
+                # 如果成功率低於 95%，發出警告
+                if ($successRate -lt 95) {
+                    Write-Error "⚠ 警告：健康檢查成功率低於 95%，建議考慮回滾"
+                    exit 1
+                } else {
+                    Write-Host "✓ 監控通過，部署成功"
+                }
+
+          - task: PowerShell@2
+            displayName: "更新部署記錄"
+            inputs:
+              targetType: "inline"
+              script: |
+                Write-Host "========================================="
+                Write-Host "藍綠部署完成"
+                Write-Host "========================================="
+                Write-Host "部署時間: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                Write-Host "Build ID: $(Build.BuildId)"
+                Write-Host "新活動環境: 綠環境"
+                Write-Host "舊環境: 藍環境（保留作為回滾備份）"
+                Write-Host ""
+                Write-Host "注意事項:"
+                Write-Host "- 藍環境仍在運行，可以隨時回滾"
+                Write-Host "- 建議在確認穩定後再關閉藍環境"
+                Write-Host "- 下次部署將切換到藍環境"
+                Write-Host "========================================="
+
+  # 回滾步驟（手動執行）
+  - stage: Rollback
+    displayName: "回滾到藍環境"
+    dependsOn:
+      - SwitchTraffic
+      - MonitorProduction
+    condition: failed()
+    jobs:
+      - deployment: RollbackToBlue
+        displayName: "緊急回滾"
+        environment: "blue-green-rollback"
+        pool:
+          vmImage: "ubuntu-latest"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: "回滾流量到藍環境"
+                  inputs:
+                    azureSubscription: "$(azureSubscription)"
+                    scriptType: "pscore"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      Write-Host "⚠ 執行緊急回滾..."
+                      Write-Host "將流量切換回藍環境"
+
+                      # 實際場景中執行回滾操作
+
+                      Write-Host "✓ 回滾完成"
+                      Write-Host "當前活動環境: 藍環境"
+
+                - task: PowerShell@2
+                  displayName: "驗證回滾結果"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      $blueUrl = "https://$(blueSlotName).azurewebsites.net/health"
+                      $response = Invoke-WebRequest -Uri $blueUrl -UseBasicParsing
+
+                      if ($response.StatusCode -eq 200) {
+                          Write-Host "✓ 回滾成功，藍環境運行正常"
+                      } else {
+                          Write-Error "✗ 回滾後藍環境狀態異常"
+                          exit 1
+                      }
