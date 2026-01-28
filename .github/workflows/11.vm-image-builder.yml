@@ -69,6 +69,15 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Register Azure Resource Providers
+        run: |
+          echo "Registering required Azure resource providers..."
+          az provider register --namespace Microsoft.VirtualMachineImages --wait
+          az provider register --namespace Microsoft.Compute --wait
+          az provider register --namespace Microsoft.Storage --wait
+          az provider register --namespace Microsoft.Network --wait
+          echo "Resource providers registered successfully"
+
       - name: Create or Update Shared Image Gallery
         id: sig
         run: |
@@ -142,15 +151,26 @@ jobs:
           # Get subscription ID
           SUBSCRIPTION_ID=$(az account show --query id --output tsv)
           
-          # Assign Contributor role on resource group
-          az role assignment create \
+          # Check if role assignment already exists
+          EXISTING_ASSIGNMENT=$(az role assignment list \
             --assignee ${{ steps.identity.outputs.IDENTITY_PRINCIPAL_ID }} \
             --role "Contributor" \
             --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/${{ env.AZURE_RESOURCE_GROUP }}" \
-            --only-show-errors || true
+            --query "[0].id" --output tsv)
           
-          # Wait for role assignment to propagate
-          sleep 30
+          if [ -z "$EXISTING_ASSIGNMENT" ]; then
+            echo "Assigning Contributor role to identity..."
+            az role assignment create \
+              --assignee ${{ steps.identity.outputs.IDENTITY_PRINCIPAL_ID }} \
+              --role "Contributor" \
+              --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/${{ env.AZURE_RESOURCE_GROUP }}" \
+              --only-show-errors
+            
+            # Wait for role assignment to propagate
+            sleep 30
+          else
+            echo "Role assignment already exists"
+          fi
 
       - name: Prepare AIB Template
         run: |
