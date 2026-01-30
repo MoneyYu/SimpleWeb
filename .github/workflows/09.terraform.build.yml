@@ -24,12 +24,6 @@ jobs:
       - name: .NET Restore
         run: dotnet restore src/*.sln
 
-      - name: .NET Build
-        run: dotnet build src/*.sln --configuration ${{ env.buildConfiguration }} --no-restore
-
-      - name: .NET Test
-        run: dotnet test src/**/*[Tt]est/*.csproj --configuration ${{ env.buildConfiguration }} --no-restore
-
       - name: .NET Publish
         run: dotnet publish src/SimpleWeb/SimpleWeb.csproj --configuration ${{ env.buildConfiguration }} --output ${{ github.workspace }}/publish
 

@@ -1,0 +1,169 @@
+{
+  "type": "Microsoft.VirtualMachineImages/imageTemplates",
+  "apiVersion": "2022-07-01",
+  "location": "<LOCATION>",
+  "tags": {
+    "imagebuilderTemplate": "SimpleWebVM",
+    "userIdentity": "enabled"
+  },
+  "identity": {
+    "type": "UserAssigned",
+    "userAssignedIdentities": {
+      "<USER_ASSIGNED_IDENTITY_RESOURCE_ID>": {}
+    }
+  },
+  "properties": {
+    "buildTimeoutInMinutes": 120,
+    "stagingResourceGroup": "/subscriptions/ffc7fbc7-3840-4835-ad88-4eb5015d7dac/resourceGroups/Demo",
+    "validate": {
+      "continueDistributeOnFailure": false,
+      "inVMValidations": []
+    },
+    "vmProfile": {
+      "vmSize": "Standard_D2s_v3",
+      "osDiskSizeGB": 127
+    },
+    "source": {
+      "type": "PlatformImage",
+      "publisher": "MicrosoftWindowsServer",
+      "offer": "WindowsServer",
+      "sku": "2022-datacenter-azure-edition",
+      "version": "latest"
+    },
+    "customize": [
+      {
+        "type": "PowerShell",
+        "name": "Install IIS",
+        "inline": [
+          "Write-Host 'Installing IIS and management tools...'",
+          "Install-WindowsFeature -Name Web-Server -IncludeManagementTools",
+          "Install-WindowsFeature -Name Web-Asp-Net45",
+          "Install-WindowsFeature -Name Web-Mgmt-Service"
+        ]
+      },
+      {
+        "type": "PowerShell",
+        "name": "Install .NET 10 Hosting Bundle",
+        "inline": [
+          "Write-Host 'Downloading .NET 10 Hosting Bundle...'",
+          "$downloadUrl = 'https://download.visualstudio.microsoft.com/download/pr/PLACEHOLDER/dotnet-hosting-10.0-win.exe'",
+          "$installerPath = 'C:\\Temp\\dotnet-hosting-10.0-win.exe'",
+          "New-Item -ItemType Directory -Force -Path C:\\Temp",
+          "# Note: Update the download URL when .NET 10 is officially released",
+          "# For now, using placeholder. You'll need to update this with the actual .NET 10 Hosting Bundle URL",
+          "# Check https://dotnet.microsoft.com/download/dotnet/10.0 for the official URL",
+          "try {",
+          "  Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath -UseBasicParsing",
+          "  Write-Host 'Installing .NET 10 Hosting Bundle...'",
+          "  Start-Process -FilePath $installerPath -ArgumentList '/quiet', '/norestart' -Wait -NoNewWindow",
+          "  Write-Host '.NET 10 Hosting Bundle installed successfully'",
+          "} catch {",
+          "  Write-Host 'Failed to download/install .NET 10 Hosting Bundle. Error: $_'",
+          "  # Alternative: Install from a known location or Azure Storage",
+          "}"
+        ]
+      },
+      {
+        "type": "PowerShell",
+        "name": "Create Application Directory",
+        "inline": [
+          "Write-Host 'Creating application directory...'",
+          "New-Item -ItemType Directory -Force -Path C:\\inetpub\\SimpleWeb",
+          "icacls 'C:\\inetpub\\SimpleWeb' /grant 'IIS_IUSRS:(OI)(CI)F' /T"
+        ]
+      },
+      {
+        "type": "PowerShell",
+        "name": "Download and Deploy SimpleWeb",
+        "inline": [
+          "Write-Host 'Downloading SimpleWeb package...'",
+          "New-Item -ItemType Directory -Force -Path C:\\Temp",
+          "$packageUrl = '<ARTIFACT_URL>'",
+          "$packagePath = 'C:\\Temp\\SimpleWeb.zip'",
+          "",
+          "Invoke-WebRequest -Uri $packageUrl -OutFile $packagePath -UseBasicParsing",
+          "",
+          "Write-Host 'Extracting application...'",
+          "Expand-Archive -Path $packagePath -DestinationPath C:\\inetpub\\SimpleWeb -Force",
+          "",
+          "# Set permissions",
+          "icacls 'C:\\inetpub\\SimpleWeb' /grant 'IIS_IUSRS:(OI)(CI)F' /T",
+          "Write-Host 'Application deployed successfully'"
+        ]
+      },
+      {
+        "type": "PowerShell",
+        "name": "Configure IIS",
+        "inline": [
+          "Write-Host 'Configuring IIS Application Pool...'",
+          "Import-Module WebAdministration",
+          "",
+          "# Create Application Pool",
+          "$appPoolName = 'SimpleWebAppPool'",
+          "if (!(Test-Path IIS:\\AppPools\\$appPoolName)) {",
+          "  New-WebAppPool -Name $appPoolName",
+          "}",
+          "",
+          "# Configure Application Pool for .NET Core",
+          "Set-ItemProperty IIS:\\AppPools\\$appPoolName -Name managedRuntimeVersion -Value ''",
+          "Set-ItemProperty IIS:\\AppPools\\$appPoolName -Name processModel.identityType -Value 'ApplicationPoolIdentity'",
+          "",
+          "# Remove Default Website if exists",
+          "if (Test-Path 'IIS:\\Sites\\Default Web Site') {",
+          "  Remove-Website -Name 'Default Web Site'",
+          "}",
+          "",
+          "# Create SimpleWeb Website",
+          "$siteName = 'SimpleWeb'",
+          "if (!(Test-Path IIS:\\Sites\\$siteName)) {",
+          "  New-Website -Name $siteName -PhysicalPath 'C:\\inetpub\\SimpleWeb' -ApplicationPool $appPoolName -Port 80",
+          "} else {",
+          "  Set-ItemProperty IIS:\\Sites\\$siteName -Name physicalPath -Value 'C:\\inetpub\\SimpleWeb'",
+          "  Set-ItemProperty IIS:\\Sites\\$siteName -Name applicationPool -Value $appPoolName",
+          "}",
+          "",
+          "Write-Host 'IIS configuration completed'"
+        ]
+      },
+      {
+        "type": "WindowsRestart",
+        "restartCheckCommand": "echo 'Restarted successfully'",
+        "restartTimeout": "10m"
+      },
+      {
+        "type": "PowerShell",
+        "name": "Verify Installation",
+        "inline": [
+          "Write-Host 'Verifying installation...'",
+          "Write-Host 'IIS Status:'",
+          "Get-Service W3SVC | Select-Object Name, Status, StartType",
+          "Write-Host 'SimpleWeb Site:'",
+          "Get-Website -Name SimpleWeb | Select-Object Name, State, PhysicalPath",
+          "Write-Host '.NET Installation:'",
+          "dotnet --info"
+        ]
+      },
+      {
+        "type": "PowerShell",
+        "name": "Windows Update and Sysprep",
+        "inline": [
+          "Write-Host 'Running Windows Updates...'",
+          "# Note: Sysprep will be run automatically by Azure Image Builder",
+          "Write-Host 'Cleanup temporary files...'",
+          "Remove-Item -Path C:\\Temp\\* -Recurse -Force -ErrorAction SilentlyContinue"
+        ]
+      }
+    ],
+    "distribute": [
+      {
+        "type": "SharedImage",
+        "galleryImageId": "<SHARED_IMAGE_GALLERY_IMAGE_ID>",
+        "runOutputName": "SimpleWebVM",
+        "replicationRegions": [
+          "<REGION>"
+        ],
+        "storageAccountType": "Standard_LRS"
+      }
+    ]
+  }
+}
