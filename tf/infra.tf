@@ -2,7 +2,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 2.0"
+      version = "~> 4.0"
     }
   }
 }
@@ -13,6 +13,8 @@ provider "azurerm" {
   # version = "~>2.0"
   features {}
   # Use Azure CLI to authencation
+  subscription_id = "ffc7fbc7-3840-4835-ad88-4eb5015d7dac"
+
 }
 
 locals {
@@ -37,31 +39,29 @@ resource "azurerm_resource_group" "demotf" {
   }
 }
 
-resource "azurerm_app_service_plan" "demotf" {
+resource "azurerm_service_plan" "demotf" {
   name                = "plan${local.random_name}"
   location            = azurerm_resource_group.demotf.location
   resource_group_name = azurerm_resource_group.demotf.name
-  kind                = "Linux"
-  reserved            = true
-
-  sku {
-    tier = "Standard"
-    size = "S1"
-  }
+  os_type             = "Windows"
+  sku_name            = "S1"
 
   tags = {
     environment = local.group_name
   }
 }
 
-resource "azurerm_app_service" "demotf" {
+resource "azurerm_windows_web_app" "demotf" {
   name                = "web${local.random_name}"
   location            = azurerm_resource_group.demotf.location
   resource_group_name = azurerm_resource_group.demotf.name
-  app_service_plan_id = azurerm_app_service_plan.demotf.id
+  service_plan_id     = azurerm_service_plan.demotf.id
 
   site_config {
-    linux_fx_version = "DOTNETCORE|6.0"
+    application_stack {
+      current_stack  = "dotnet"
+      dotnet_version = "v10.0"
+    }
   }
 
   app_settings = {
