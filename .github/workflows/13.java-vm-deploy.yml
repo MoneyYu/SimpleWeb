@@ -1,0 +1,186 @@
+# 13 - Java Edition：部署到 VM（手動觸發）
+#
+# 教學重點
+#   - 只用 workflow_dispatch：部署是「人決定什麼時候做」的動作，不要綁在 push 上
+#   - environment 由執行時輸入的參數決定；正式環境的保護（required reviewers、
+#     wait timer、限制分支）請在 GitHub Environment 設定，不要寫死在 workflow 裡
+#   - permissions 分 job 給：build 需要 contents: write（發佈 Release asset），
+#     deploy 只需要 contents: read + id-token: write（OIDC）
+#   - az vm run-command：不用開 SSH port、不用保管私鑰就能在 VM 上執行指令
+#
+# 部署載荷怎麼上 VM？
+#   把 jar 發佈成「滾動式」的 public pre-release asset，VM 端用 curl 匿名下載，
+#   不需要額外的儲存體或憑證。（私有 repo 請改用 SAS URL 或自架儲存體。）
+#
+# 執行前需要設定（Repository 或 Environment 層級）：
+#   variables：AZURE_RESOURCE_GROUP、AZURE_VM_NAME、VM_PUBLIC_IP
+#   secrets  ：AZURE_CLIENT_ID、AZURE_TENANT_ID、AZURE_SUBSCRIPTION_ID
+#   VM 端    ：simpleweb 使用者、/opt/simpleweb/{test,prod} 目錄、
+#             simpleweb-test / simpleweb-prod 兩個 systemd unit
+#             （unit 需 EnvironmentFile=/opt/simpleweb/<env>/app.env）
+name: 13.java-vm-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 要部署的環境
+        type: choice
+        required: true
+        default: test
+        options:
+          - test
+          - production
+
+permissions:
+  contents: read
+
+# 滾動式 asset 只有一份，同時跑兩個部署會互相覆蓋；用 concurrency 讓部署一次只跑一個。
+# cancel-in-progress: false → 排隊等前一個做完，不要把部署到一半的 run 砍掉。
+concurrency:
+  group: java-vm-deploy
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: java-build-latest
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 只有這個 job 需要寫入權限，用來發佈 Release asset
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: src-java/pom.xml
+
+      - name: Build and test
+        working-directory: src-java
+        run: ./mvnw -B verify
+
+      # 滾動式 pre-release：tag 固定，asset 每次覆蓋，VM 端的下載網址永遠一樣
+      - name: Publish deployable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 \
+            || gh release create "$RELEASE_TAG" --prerelease \
+                 --title "SimpleWeb Java rolling build" \
+                 --notes "由 13.java-vm-deploy 自動更新的最新可部署版本"
+          gh release upload "$RELEASE_TAG" src-java/target/simpleweb.jar --clobber
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      id-token: write # OIDC 換發 token 必要！少了這行 azure/login 一定失敗
+    # 這一行讓 run 出現在 Environments 頁面，也是套用保護規則的依據。
+    # 選 production 時若設了 required reviewers，job 會停在 Waiting 等人核准。
+    environment:
+      name: ${{ inputs.environment }}
+      url: http://${{ vars.VM_PUBLIC_IP }}:${{ inputs.environment == 'production' && '8081' || '8080' }}
+    env:
+      APP_DIR: ${{ inputs.environment == 'production' && '/opt/simpleweb/prod' || '/opt/simpleweb/test' }}
+      SERVICE_NAME: ${{ inputs.environment == 'production' && 'simpleweb-prod' || 'simpleweb-test' }}
+      APP_PORT: ${{ inputs.environment == 'production' && '8081' || '8080' }}
+      APP_ENVIRONMENT: ${{ inputs.environment }}
+
+    steps:
+      # 先確認設定齊全，錯誤訊息比「az 指令跑到一半失敗」清楚很多
+      - name: Check required configuration
+        env:
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_VM_NAME: ${{ vars.AZURE_VM_NAME }}
+          VM_PUBLIC_IP: ${{ vars.VM_PUBLIC_IP }}
+        run: |
+          set -eu
+          missing=''
+          for name in AZURE_RESOURCE_GROUP AZURE_VM_NAME VM_PUBLIC_IP; do
+            eval "value=\${$name:-}"
+            [ -n "$value" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "缺少必要的 variables:$missing" >&2
+            exit 1
+          fi
+
+      # 使用 OIDC 登入 Azure（GitHub 這邊不需要存任何長期的 Azure 密碼）
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # 訓練用訂閱常有 auto-shutdown；部署前先確保 VM 正在執行
+      - name: Ensure VM is running
+        run: |
+          az vm start \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_VM_NAME }}"
+
+      # 注意：VM 上的預設 shell 不是 bash，所以只用 POSIX 的 set -eu（沒有 pipefail）
+      # run-command 即使腳本失敗也可能回報成功，所以腳本最後印出 DEPLOY_OK，由這裡驗證。
+      - name: Deploy to ${{ inputs.environment }} VM
+        env:
+          JAR_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/simpleweb.jar
+        run: |
+          output="$(az vm run-command invoke \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_VM_NAME }}" \
+            --command-id RunShellScript \
+            --scripts "
+              set -eu
+              curl -fsSL --retry 3 -o '$APP_DIR/simpleweb.jar.new' '$JAR_URL'
+              install -o simpleweb -g simpleweb -m 0644 '$APP_DIR/simpleweb.jar.new' '$APP_DIR/simpleweb.jar'
+              rm -f '$APP_DIR/simpleweb.jar.new'
+              printf 'APP_ENVIRONMENT=%s\nAPP_BUILD_SHA=%s\nAPP_BUILD_TIME=%s\n' '$APP_ENVIRONMENT' '${{ github.sha }}' \"\$(date -u +%FT%TZ)\" > '$APP_DIR/app.env'
+              chown simpleweb:simpleweb '$APP_DIR/app.env'
+              chmod 0644 '$APP_DIR/app.env'
+              systemctl restart '$SERVICE_NAME'
+              echo DEPLOY_OK
+            " \
+            --query "value[0].message" -o tsv)"
+          echo "$output"
+          if ! printf '%s' "$output" | grep -q 'DEPLOY_OK'; then
+            echo "VM 上的部署腳本沒有跑完，請看上面的訊息" >&2
+            exit 1
+          fi
+
+      # 部署完一定要驗證，而且要比對 buildSha，
+      # 否則「舊版程式還活著」也會回 200，workflow 就會綠燈騙人
+      - name: Smoke test
+        run: |
+          body=''
+          for i in $(seq 1 10); do
+            body="$(curl -fsS "http://${{ vars.VM_PUBLIC_IP }}:${APP_PORT}/api/info" || true)"
+            if printf '%s' "$body" | grep -q "$GITHUB_SHA"; then
+              echo "$body"
+              echo "${APP_ENVIRONMENT} 環境部署成功"
+              exit 0
+            fi
+            echo "等待應用程式啟動並回報新版本... ($i/10)" && sleep 6
+          done
+          echo "應用程式在時間內沒有回報這次部署的 commit" >&2
+          echo "最後一次回應：$body" >&2
+          exit 1
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo "## Deploy (${APP_ENVIRONMENT})"
+            echo ""
+            echo "- 目標目錄：\`${APP_DIR}\`"
+            echo "- systemd unit：\`${SERVICE_NAME}\`"
+            echo "- 驗證網址：http://${{ vars.VM_PUBLIC_IP }}:${APP_PORT}/api/info"
+            echo "- 部署 commit：\`${GITHUB_SHA:0:7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

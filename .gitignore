@@ -357,3 +357,11 @@ override.tf.json
 .terraformrc
 terraform.rc
 .terraform.lock.hcl
+
+# Java / Maven (src-java)
+target/
+.mvn/wrapper/maven-wrapper.jar
+*.iml
+.classpath
+.project
+.settings/
