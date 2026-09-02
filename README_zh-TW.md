@@ -17,6 +17,7 @@
 - [執行測試](#執行測試)
 - [Docker 支援](#docker-支援)
 - [CI/CD 管線](#cicd-管線)
+- [Java 版本](#java-版本)
 - [基礎架構即程式碼](#基礎架構即程式碼)
 - [Kubernetes 部署](#kubernetes-部署)
 - [貢獻指南](#貢獻指南)
@@ -56,6 +57,12 @@ SimpleWeb/
 │   ├── SimpleWeb.UnitTest/           # 單元測試
 │   ├── SimpleWeb.IntegrationTest/    # 整合測試
 │   └── SimpleWeb.UITest/             # UI 自動化測試
+├── src-java/                         # Java 版本（Spring Boot 4.1.1 / Java 21）
+│   ├── pom.xml                       # Maven 專案（產出 target/simpleweb.jar）
+│   ├── mvnw / mvnw.cmd / .mvn/       # Maven Wrapper
+│   ├── Dockerfile                    # 容器定義
+│   ├── src/                          # 應用程式與測試原始碼
+│   └── README.md                     # Java 版本說明文件
 ├── ci/                               # Azure DevOps 管線定義
 │   ├── 01.build.yml                  # 基本建置管線
 │   ├── 01.prwithlimitbranch.yml      # PR 驗證（限制分支）
@@ -91,7 +98,9 @@ SimpleWeb/
     ├── 08.aks.yml                    # 部署至 Azure Kubernetes Service
     ├── 09.terraform.build.yml        # Terraform 建置工作流程
     ├── 09.terraform.release.yml      # Terraform 發布工作流程
-    └── 10.bicep.yml                  # Bicep 部署工作流程
+    ├── 10.bicep.yml                  # Bicep 部署工作流程
+    ├── 12.java-build.yml             # Java 版本建置與測試
+    └── 13.java-vm-deploy.yml         # Java 版本手動 VM 部署
 ```
 
 ## 環境需求
@@ -259,6 +268,34 @@ docker-compose down
 | `09.terraform.build.yml` | 建置並準備 Terraform 成品 |
 | `09.terraform.release.yml` | 使用 Terraform 部署基礎架構並部署應用程式 |
 | `10.bicep.yml` | 使用 Bicep 部署 Azure 基礎架構 |
+
+## Java 版本
+
+除了 `src/` 的 ASP.NET Core 應用程式之外，本儲存庫還包含 SimpleWeb 的 **Java 版本**，
+位於 [`src-java/`](src-java/)：以 Spring Boot 4.1.1 / Java 21 實作，提供同樣的環境與建置資訊。
+兩個版本各自獨立建置與部署，用來示範同一套 DevOps 實踐如何套用在不同技術堆疊上。
+
+```bash
+cd src-java
+
+# 建置、測試並打包（產出 target/simpleweb.jar）
+./mvnw -B verify
+
+# 在 http://localhost:8080 本機執行
+./mvnw spring-boot:run
+```
+
+端點：`/`（首頁）、`/api/info`（JSON）、`/actuator/health`、`/actuator/info`。
+
+完整說明（本機執行、測試、Docker、環境變數，以及 `/opt/simpleweb/{test,prod}` 的通用 VM
+部署配置）請見 [`src-java/README.md`](src-java/README.md)。
+
+### Java 工作流程
+
+| 工作流程 | 說明 |
+|----------|-------------|
+| `12.java-build.yml` | `src-java/**` 有變更時建置並測試 Java 版本 |
+| `13.java-vm-deploy.yml` | 手動（`workflow_dispatch`）部署 Java 版本至 Linux VM，可選擇 `test` 或 `production` GitHub Environment |
 
 ## 基礎架構即程式碼
 

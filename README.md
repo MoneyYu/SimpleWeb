@@ -33,6 +33,8 @@ A demo ASP.NET Core 10.0 web application showcasing modern DevOps practices, clo
     - [Docker Compose (Optional)](#docker-compose-optional)
   - [CI/CD Pipelines](#cicd-pipelines)
     - [GitHub Actions](#github-actions)
+  - [Java Edition](#java-edition)
+    - [Java Workflows](#java-workflows)
   - [Infrastructure as Code](#infrastructure-as-code)
     - [Terraform](#terraform)
     - [Bicep](#bicep)
@@ -77,6 +79,12 @@ SimpleWeb/
 │   ├── SimpleWeb.UnitTest/           # Unit tests
 │   ├── SimpleWeb.IntegrationTest/    # Integration tests
 │   └── SimpleWeb.UITest/             # UI automation tests
+├── src-java/                         # Java edition (Spring Boot 4.1.1 / Java 21)
+│   ├── pom.xml                       # Maven project (builds target/simpleweb.jar)
+│   ├── mvnw / mvnw.cmd / .mvn/       # Maven Wrapper
+│   ├── Dockerfile                    # Container definition
+│   ├── src/                          # Application and test sources
+│   └── README.md                     # Java edition documentation (Traditional Chinese)
 ├── ci/                               # Azure DevOps pipeline definitions
 │   ├── 01.build.yml                  # Basic build pipeline
 │   ├── 01.prwithlimitbranch.yml      # PR validation with branch restriction
@@ -112,7 +120,9 @@ SimpleWeb/
     ├── 08.aks.yml                    # Deploy to Azure Kubernetes Service
     ├── 09.terraform.build.yml        # Terraform build workflow
     ├── 09.terraform.release.yml      # Terraform release workflow
-    └── 10.bicep.yml                  # Bicep deployment workflow
+    ├── 10.bicep.yml                  # Bicep deployment workflow
+    ├── 12.java-build.yml             # Java edition build and test
+    └── 13.java-vm-deploy.yml         # Java edition manual VM deployment
 ```
 
 ## Prerequisites
@@ -280,6 +290,36 @@ The project includes comprehensive GitHub Actions workflows (`.github/workflows/
 | `09.terraform.build.yml` | Build and prepare Terraform artifacts |
 | `09.terraform.release.yml` | Deploy infrastructure with Terraform and deploy app |
 | `10.bicep.yml` | Deploy Azure infrastructure with Bicep |
+
+## Java Edition
+
+Alongside the ASP.NET Core application in `src/`, this repository also contains a **Java edition**
+of SimpleWeb in [`src-java/`](src-java/) — a Spring Boot 4.1.1 / Java 21 application that exposes
+the same kind of environment and build information. Both editions are built and deployed
+independently, so the same DevOps practices can be demonstrated on two technology stacks.
+
+```bash
+cd src-java
+
+# Build, test and package (produces target/simpleweb.jar)
+./mvnw -B verify
+
+# Run locally on http://localhost:8080
+./mvnw spring-boot:run
+```
+
+Endpoints: `/` (home page), `/api/info` (JSON), `/actuator/health`, `/actuator/info`.
+
+Full documentation (Traditional Chinese) — local run, tests, Docker, environment variables and the
+generic VM deployment layout under `/opt/simpleweb/{test,prod}` — is in
+[`src-java/README.md`](src-java/README.md).
+
+### Java Workflows
+
+| Workflow | Description |
+|----------|-------------|
+| `12.java-build.yml` | Build and test the Java edition on pushes touching `src-java/**` |
+| `13.java-vm-deploy.yml` | Manual (`workflow_dispatch`) deployment of the Java edition to a Linux VM, targeting the `test` or `production` GitHub Environment |
 
 ## Infrastructure as Code
 

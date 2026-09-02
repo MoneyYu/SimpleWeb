@@ -1,0 +1,56 @@
+# 12 - Java Edition：建置與測試（CI）
+#
+# 教學重點
+#   - paths 過濾：只有 src-java/** 有變更時才跑，避免 C# 的變更觸發 Java CI
+#   - setup-java 的 cache: maven 就足以加速相依套件下載，不需要自己寫 actions/cache
+#   - Artifact 只上傳「要部署的那一個檔案」(src-java/target/simpleweb.jar)，
+#     不要把整個 target/ 丟上去
+name: 12.java-build
+
+on:
+  push:
+    paths:
+      - 'src-java/**'
+      - '.github/workflows/12.java-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: src-java/pom.xml
+
+      - name: Build and test
+        working-directory: src-java
+        run: ./mvnw -B verify
+
+      # if-no-files-found: error → finalName 若被改掉，這裡會直接失敗而不是靜靜地上傳空的 artifact
+      - name: Upload deployable jar
+        uses: actions/upload-artifact@v7
+        with:
+          name: simpleweb-jar
+          path: src-java/target/simpleweb.jar
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Write job summary
+        run: |
+          {
+            echo "## SimpleWeb Java Edition"
+            echo ""
+            echo "- 產出物：\`src-java/target/simpleweb.jar\`"
+            echo "- 大小：$(du -h src-java/target/simpleweb.jar | cut -f1)"
+            echo "- SHA256：\`$(sha256sum src-java/target/simpleweb.jar | cut -d' ' -f1)\`"
+            echo "- 來源 commit：\`${GITHUB_SHA:0:7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
